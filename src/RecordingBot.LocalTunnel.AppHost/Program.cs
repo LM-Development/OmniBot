@@ -90,11 +90,10 @@ catch (Exception ex)
 var wslKeyPath = WslHelper.ToWslPath(SshKeyHelper.PrivateKeyPath);
 
 // kubectl port-forward: maps local port to the tunnel pod's SSH ClusterIP service
+var kubectlCommand = $"export PATH=\"$PATH:/snap/bin:/usr/local/bin\" && kubectl --context {config.KubeContext} port-forward svc/{config.ReleaseName}-ssh -n {config.Namespace} {config.LocalSshPort}:22";
+
 builder.AddExecutable("kubectl-forward", "wsl", ".",
-    "kubectl", "--context", config.KubeContext,
-    "port-forward", $"svc/{config.ReleaseName}-ssh",
-    "-n", config.Namespace,
-    $"{config.LocalSshPort}:22");
+    "bash", "-l", "-c", kubectlCommand);
 
 // SSH reverse tunnel: retries until kubectl port-forward is ready,
 // then keeps the tunnel alive.
@@ -112,12 +111,40 @@ builder.AddExecutable("ssh-tunnel", "wsl", ".",
 
 // The Teams recording bot, configured for local development
 builder.AddProject<Projects.RecordingBot_Console>("recording-bot")
+    // Authentication settings - TODO: Set these in user secrets or environment variables
+    .WithEnvironment("AzureSettings__AadAppId", builder.Configuration["AzureSettings:AadAppId"] ?? "")
+    .WithEnvironment("AzureSettings__AadAppSecret", builder.Configuration["AzureSettings:AadAppSecret"] ?? "")
+
+    // Certificate configuration
     .WithEnvironment("AzureSettings__CertificatePath", certPath)
+    .WithEnvironment("AzureSettings__CertificatePassword", "")
+
+    // Network configuration
     .WithEnvironment("AzureSettings__ServiceDnsName", config.Host)
+    .WithEnvironment("AzureSettings__ServicePath", "/")
+    .WithEnvironment("AzureSettings__ServiceCname", config.Host)
     .WithEnvironment("AzureSettings__CallSignalingPort", config.SignalingPort.ToString())
     .WithEnvironment("AzureSettings__CallSignalingPublicPort", config.PublicHttpsPort.ToString())
     .WithEnvironment("AzureSettings__InstanceInternalPort", config.MediaPort.ToString())
     .WithEnvironment("AzureSettings__InstancePublicPort", config.PublicMediaPort.ToString())
-    .WithEnvironment("AzureSettings__PodName", "bot-0");
+
+    // Graph API endpoint
+    .WithEnvironment("AzureSettings__PlaceCallEndpointUrl", "https://graph.microsoft.com/v1.0")
+
+    // Pod identification
+    .WithEnvironment("AzureSettings__PodName", "bot-0")
+
+    // Media recording configuration
+    .WithEnvironment("AzureSettings__MediaFolder", builder.Configuration["AzureSettings:MediaFolder"] ?? "archive")
+    .WithEnvironment("AzureSettings__IsStereo", builder.Configuration["AzureSettings:IsStereo"] ?? "false")
+    .WithEnvironment("AzureSettings__WAVSampleRate", builder.Configuration["AzureSettings:WAVSampleRate"] ?? "0")
+    .WithEnvironment("AzureSettings__WAVQuality", builder.Configuration["AzureSettings:WAVQuality"] ?? "100")
+
+    // Event capture configuration
+    .WithEnvironment("AzureSettings__CaptureEvents", builder.Configuration["AzureSettings:CaptureEvents"] ?? "false")
+    .WithEnvironment("AzureSettings__EventsFolder", builder.Configuration["AzureSettings:EventsFolder"] ?? "events")
+    .WithEnvironment("AzureSettings__TopicName", builder.Configuration["AzureSettings:TopicName"] ?? "recordingbotevents")
+    .WithEnvironment("AzureSettings__TopicKey", builder.Configuration["AzureSettings:TopicKey"] ?? "")
+    .WithEnvironment("AzureSettings__RegionName", builder.Configuration["AzureSettings:RegionName"] ?? "australiaeast");
 
 await builder.Build().RunAsync();

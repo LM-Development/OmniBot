@@ -8,6 +8,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
     <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>fa83b4d7-1c4b-4b8d-81e5-686bc0b3d402</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" Version="9.0.0" />

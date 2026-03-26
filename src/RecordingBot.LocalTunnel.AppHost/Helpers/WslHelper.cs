@@ -34,10 +34,13 @@ public static class WslHelper
     {
         Console.WriteLine($"  [wsl] {command}");
 
+        // Ensure common paths like /snap/bin are in PATH for tools like kubectl
+        var wrappedCommand = $"export PATH=\"$PATH:/snap/bin:/usr/local/bin\" && {command}";
+
         var psi = new ProcessStartInfo
         {
             FileName = "wsl",
-            Arguments = $"bash -l -c \"{command.Replace("\"", "\\\"")}\"",
+            Arguments = $"bash -l -c \"{wrappedCommand.Replace("\"", "\\\"")}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

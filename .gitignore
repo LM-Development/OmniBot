@@ -408,3 +408,4 @@ FodyWeavers.xsd
 *.env
 deploy/teams-recording-bot/charts/*
 src/RecordingBot.Console/cache/*
+/src/RecordingBot.Console/ecs-cache
