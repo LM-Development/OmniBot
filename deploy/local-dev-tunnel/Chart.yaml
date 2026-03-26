@@ -1,0 +1,6 @@
+apiVersion: v2
+name: local-dev-tunnel
+description: Helm chart for deploying a reverse SSH tunnel endpoint for local bot development
+type: application
+version: 1.0.0
+appVersion: 1.0.0

@@ -1,0 +1,30 @@
+global:
+  override:
+    name: ""
+    namespace: ""
+
+image:
+  repository: alpine
+  tag: "3.20"
+
+ssh:
+  authorizedKey: ""
+  port: 22
+
+ports:
+  signaling: 9441
+  media: 8445
+
+service:
+  type: LoadBalancer
+  publicIp: null
+  httpsPort: 8443
+  mediaPort: 28551
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

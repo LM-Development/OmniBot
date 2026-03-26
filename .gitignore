@@ -7,6 +7,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# Local tunnel key material and certificates
+.aks-tunnel/
+
 # User-specific files
 *.rsuser
 *.suo

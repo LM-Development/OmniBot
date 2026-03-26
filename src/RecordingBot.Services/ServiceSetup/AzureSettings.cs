@@ -15,6 +15,8 @@ namespace RecordingBot.Services.ServiceSetup
         public string ServicePath {get;set;} = "/";
         public string ServiceCname { get; set; }
         public string CertificateThumbprint { get; set; }
+        public string CertificatePath { get; set; }
+        public string CertificatePassword { get; set; } = "";
         public Uri CallControlBaseUrl { get; set; }
         public Uri PlaceCallEndpointUrl { get; set; }
         public MediaPlatformSettings MediaPlatformSettings { get; private set; }
@@ -45,7 +47,7 @@ namespace RecordingBot.Services.ServiceSetup
                 ServiceCname = ServiceDnsName;
             }
 
-            Certificate = GetCertificateFromStore();
+            Certificate = LoadCertificate();
 
             int podNumber = 0;
 
@@ -79,27 +81,41 @@ namespace RecordingBot.Services.ServiceSetup
         }
 
         /// <summary>
-        /// Helper to search the certificate store by its thumbprint.
+        /// Loads the certificate from a PFX file path if configured,
+        /// otherwise falls back to searching the Windows certificate store by thumbprint.
         /// </summary>
-        /// <returns>Certificate if found.</returns>
-        /// <exception cref="Exception">No certificate with thumbprint {CertificateThumbprint} was found in the machine store.</exception>
-        private X509Certificate2 GetCertificateFromStore()
+        private X509Certificate2 LoadCertificate()
         {
-            using (X509Store store = new(StoreName.My, StoreLocation.LocalMachine))
+            // Prefer file-based certificate (local development)
+            if (!string.IsNullOrWhiteSpace(CertificatePath))
             {
-                store.Open(OpenFlags.ReadOnly);
-                var certs = store.Certificates.Find(X509FindType.FindByThumbprint, CertificateThumbprint, validOnly: false);
+                if (!System.IO.File.Exists(CertificatePath))
+                    throw new System.IO.FileNotFoundException($"Certificate file not found at '{CertificatePath}'.", CertificatePath);
 
-                if (certs.Count != 1)
+                return new X509Certificate2(CertificatePath, CertificatePassword ?? "");
+            }
+
+            // Fall back to certificate store lookup by thumbprint (production / container)
+            if (!string.IsNullOrWhiteSpace(CertificateThumbprint))
+            {
+                foreach (var location in new[] { StoreLocation.LocalMachine, StoreLocation.CurrentUser })
                 {
-                    throw new CertNotFoundException($"No certificate with thumbprint {CertificateThumbprint} was found in the machine store.")
-                    {
-                        Thumbprint = CertificateThumbprint
-                    };
+                    using var store = new X509Store(StoreName.My, location);
+                    store.Open(OpenFlags.ReadOnly);
+                    var certs = store.Certificates.Find(X509FindType.FindByThumbprint, CertificateThumbprint, validOnly: false);
+
+                    if (certs.Count == 1)
+                        return certs[0];
                 }
 
-                return certs[0];
+                throw new CertNotFoundException($"No certificate with thumbprint {CertificateThumbprint} was found in the machine or user certificate store.")
+                {
+                    Thumbprint = CertificateThumbprint
+                };
             }
+
+            throw new InvalidOperationException(
+                "No certificate configured. Set either AzureSettings:CertificatePath (file) or AzureSettings:CertificateThumbprint (store).");
         }
 
         [GeneratedRegex(@"\d+$")]

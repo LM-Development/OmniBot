@@ -1,0 +1,19 @@
+{{- $fullName := include "fullName" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-ssh-config
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+data:
+  sshd_config: |
+    Port {{ .Values.ssh.port }}
+    PermitRootLogin no
+    PasswordAuthentication no
+    PubkeyAuthentication yes
+    AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+    GatewayPorts yes
+    AllowTcpForwarding yes
+    ClientAliveInterval 30
+    ClientAliveCountMax 3
