@@ -19,4 +19,4 @@ spec:
     solvers:
     - http01:
         ingress:
-          ingressClassName: {{ $.Values.ingress-traefik.ingressClass.name }}
+          ingressClassName: {{ include "ingress-traefik.ingressClass.name" . }}
