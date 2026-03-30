@@ -13,7 +13,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: {{ $fullName }}-issuer
 spec:
-  ingressClassName: {{ include "ingress-traefik.ingressClass.name" .}}
+  ingressClassName: {{ $.Values.ingress-traefik.ingressClass.name }}
   tls:
   - hosts:
     - {{ include "hostName" . }}
