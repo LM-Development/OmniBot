@@ -199,6 +199,14 @@ jobs:
             --dry-run > /dev/null
           echo "✅ Helm chart validation passed"
 
+      - name: Install Traefik CRDs
+        run: |
+          echo "📦 Installing Traefik CRDs from dependency chart"
+          # Extract and install CRDs from the Traefik dependency
+          helm pull traefik/traefik --version 39.0.7 --untar --untardir /tmp
+          kubectl apply -f /tmp/traefik/crds/ --server-side --force-conflicts 2>/dev/null || true
+          echo "✅ Traefik CRDs installed"
+
       - name: Deploy with Helm
         run: |
           echo "🚀 Deploying ${{ env.ENVIRONMENT_NAME }} Teams Recording Bot to Kubernetes"
