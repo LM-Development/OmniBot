@@ -1,0 +1,21 @@
+{{- $fullName := include "fullName" . -}}
+{{- $namespace := include "namespace" . -}}
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: {{ $fullName }}-transport
+  namespace: {{ $namespace }}
+  labels:
+    helmVersion: {{ .Chart.Version }}
+    helmAppVersion: {{ .Chart.AppVersion }}
+    helmName: {{ .Chart.Name }}
+spec:
+  serverName: ""
+  insecureSkipVerify: true
+  rootCAsSecrets: []
+  certificatesSecrets: []
+  maxIdleConnsPerHost: 42
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 0s
+    idleConnTimeout: 90s

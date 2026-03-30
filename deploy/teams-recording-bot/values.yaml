@@ -72,6 +72,8 @@ resources:
 
 ingress-traefik:
   enabled: true
+  # Install CRDs to enable advanced features like ServersTransport
+  installCRDs: true
   nodeSelector:
     "kubernetes.io/os": linux
   ingressClass:
