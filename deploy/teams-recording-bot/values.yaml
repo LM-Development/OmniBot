@@ -16,6 +16,7 @@ image:
   pullPolicy: IfNotPresent
 
 ingress:
+  className: traefik
   path: /
   tls:
     email: YOUR_EMAIL
