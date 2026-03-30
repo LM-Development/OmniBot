@@ -14,6 +14,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.14" />
         <PackageReference Include="Microsoft.Graph.Communications.Calls" Version="1.2.0.15690" />
     </ItemGroup>
 </Project>
