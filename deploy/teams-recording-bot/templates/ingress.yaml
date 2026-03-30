@@ -31,10 +31,10 @@ spec:
               port:
                 number: 443
       {{- end }}
-      - path: {{ include "ingress.path" . }}
-        pathType: Prefix
-        backend:
-          service:
-            name: {{ $fullName }}-routing
-            port:
-              number: 443
+        - path: {{ include "ingress.path" . }}
+          pathType: Prefix
+          backend:
+            service:
+              name: {{ $fullName }}-routing
+              port:
+                number: 443
