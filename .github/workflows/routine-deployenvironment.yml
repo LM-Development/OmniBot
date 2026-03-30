@@ -117,9 +117,9 @@ jobs:
           az aks get-credentials --name ${{ env.CLUSTER_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --subscription ${{ env.AZURE_SUBSCRIPTION_ID }} --overwrite-existing
 
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: "latest"
+          version: "3.14.0"
 
       - name: Update Helm dependencies
         run: |
