@@ -12,7 +12,7 @@ metadata:
     helmAppVersion: {{ $.Chart.AppVersion }}
     helmName: {{ $.Chart.Name }}
   annotations:
-    traefik.ingress.kubernetes.io/service.nativelb: true
+    traefik.ingress.kubernetes.io/service.nativelb: "true"
 spec:
   type: ClusterIP
   publishNotReadyAddresses: true
