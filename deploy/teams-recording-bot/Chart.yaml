@@ -24,7 +24,7 @@ version: 2.0.0
 appVersion: 1.4.2
 
 dependencies:
-  - name: ingress-traefik
+  - name: traefik
     version: 39.0.7
     repository: https://traefik.github.io/charts
     alias: ingress-traefik
