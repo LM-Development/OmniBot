@@ -8,10 +8,6 @@ kind: Service
 metadata:
   name: {{ $fullName }}-external
   namespace: {{ $namespace }}
-  labels:
-    helmVersion: {{ .Chart.Version }}
-    helmAppVersion: {{ .Chart.AppVersion }}
-    helmName: {{ .Chart.Name }}
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
