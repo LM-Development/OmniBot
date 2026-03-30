@@ -47,9 +47,8 @@ on:
         type: string
       image-tag:
         description: "Container image tag"
-        required: false
+        required: true
         type: string
-        default: "latest"
       public-ip:
         description: "Static public IP address for LoadBalancer"
         required: true
@@ -130,6 +129,24 @@ jobs:
         run: |
           echo "🔧 Ensuring namespace ${{ env.NAMESPACE }} exists"
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Validate inputs
+        run: |
+          echo "🔍 Validating deployment inputs"
+          if [[ -z "${{ inputs.image-tag }}" || "${{ inputs.image-tag }}" == "null" ]]; then
+            echo "❌ Error: image-tag is required and cannot be empty"
+            exit 1
+          fi
+          if [[ -z "${{ inputs.image-registry }}" || "${{ inputs.image-registry }}" == "null" ]]; then
+            echo "❌ Error: image-registry is required and cannot be empty"
+            exit 1
+          fi
+          if [[ -z "${{ inputs.image-name }}" || "${{ inputs.image-name }}" == "null" ]]; then
+            echo "❌ Error: image-name is required and cannot be empty"
+            exit 1
+          fi
+          echo "✅ All required inputs are valid"
+          echo "Image will be: ${{ inputs.image-registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
       - name: Prepare Helm values
         id: helm-values

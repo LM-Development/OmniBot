@@ -10,9 +10,9 @@ scale:
 host: null
 
 image:
-  registry: null
-  name: null
-  tag: null
+  registry: null # Must be provided at deployment time (e.g., ghcr.io)
+  name: null # Must be provided at deployment time (e.g., org/repo-name)
+  tag: null # Must be provided at deployment time (e.g., CI-generated hash)
   pullPolicy: IfNotPresent
 
 ingress:
