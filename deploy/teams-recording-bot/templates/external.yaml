@@ -21,7 +21,6 @@ spec:
     port: {{ $.Values.public.media | add $i }}
     targetPort: {{ $.Values.internal.media }}
     protocol: TCP
-{{- end }}
   selector:
     app: {{ $fullName }}
     statefulset.ubernetes.io/pod-name: {{ $fullName }}-{{ $i }}
