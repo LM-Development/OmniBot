@@ -1,6 +1,6 @@
 global:
   override:
-    name: "" 
+    name: ""
     namespace: ""
 
 scale:
@@ -56,7 +56,8 @@ container:
       wavSampleRate: 0 # when it is 0, the default sample rate will be set per the stereo flag setting above
       wavQuality: 100
 
-resources: {}
+resources:
+  {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
   # resources, such as Minikube. If you do want to specify resources, uncomment the following
@@ -68,16 +69,37 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-ingress-nginx:
+ingress-traefik:
   enabled: true
-  controller:
-    ingressClassRessource:
-      enabled: false
-    allowSnippetAnnotations: true
-    replicaCount: 1
-    nodeSelector:
-      "kubernetes.io/os": linux
-    service:
-      enabled: false
-    admissionWebhooks:
-      enabled: false
+  nodeSelector:
+    "kubernetes.io/os": linux
+  ingressClass:
+    enabled: true
+    isDefaultClass: true
+    name: traefik
+  service:
+    spec:
+      loadBalancerIP: "OVERRIDE THIS DURING DEPLOYMENT TO USE CLUSTER PUBLIC IP"
+  deployment:
+    replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "50Mi"
+    limits:
+      cpu: "300m"
+      memory: "150Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70

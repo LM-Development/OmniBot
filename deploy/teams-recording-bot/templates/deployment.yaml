@@ -54,13 +54,13 @@ spec:
       - name: recording-bot
         image: "{{ .Values.image.registry }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - powershell
-              - Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine;
-              - .\halt_termination.ps1 *>> halt_termination.log
+        # lifecycle:
+        #   preStop:
+        #     exec:
+        #       command:
+        #       - powershell
+        #       - Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine;
+        #       - .\halt_termination.ps1 *>> halt_termination.log
         ports:
         - containerPort: {{ .Values.internal.port }}
         - containerPort: {{ .Values.internal.media }}

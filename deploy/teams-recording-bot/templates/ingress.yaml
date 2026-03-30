@@ -1,5 +1,6 @@
 {{- $fullName := include "fullName" . -}}
 {{- $namespace := include "namespace" . -}}
+{{- $maxCount := include "maxCount" . -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,13 +12,8 @@ metadata:
     helmName: {{ .Chart.Name }}
   annotations:
     cert-manager.io/cluster-issuer: {{ $fullName }}-issuer
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/server-snippet: |
-      location ~* ^({{ include "ingress.path.withTrailingSlash" . }})(?<instance>[0-9]*)/api/calling/notification {
-        proxy_pass https://{{ $fullName }}-$instance.{{ $fullName }}.{{ $namespace }}.svc.cluster.local:{{ .Values.internal.port }};
-      }
 spec:
-  ingressClassName: {{ include "ingress-nginx.fullname" .}}
+  ingressClassName: {{ include "ingress-traefik.ingressClass.name" .}}
   tls:
   - hosts:
     - {{ include "hostName" . }}
@@ -26,6 +22,15 @@ spec:
   - host: {{ include "hostName" . }}
     http:
       paths:
+      {{- range $i, $e := until (int $maxCount) }}
+        - path: /{{ $i }}
+          pathType: Prefix
+          backend:
+            service:
+              name: {{ $fullName }}-{{ $i }}
+              port:
+                number: 443
+      {{- end }}
       - path: {{ include "ingress.path" . }}
         pathType: Prefix
         backend:
