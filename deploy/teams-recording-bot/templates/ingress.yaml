@@ -13,7 +13,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: {{ $fullName }}-issuer
     traefik.ingress.kubernetes.io/service.serversscheme: https
-    traefik.ingress.kubernetes.io/service.serverstransport: {{ $namespace }}-{{ $fullName }}-transport@kubernetescrd
+    traefik.ingress.kubernetes.io/service.serverstransport: {{ $fullName }}-transport@kubernetescrd
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   tls:
