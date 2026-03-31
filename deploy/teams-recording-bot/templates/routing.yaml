@@ -9,6 +9,9 @@ metadata:
     helmVersion: {{ .Chart.Version }}
     helmAppVersion: {{ .Chart.AppVersion }}
     helmName: {{ .Chart.Name }}
+  annotations:
+    traefik.ingress.kubernetes.io/service.serversscheme: https
+    traefik.ingress.kubernetes.io/service.serverstransport: {{ $fullName }}-transport@kubernetescrd
 spec:
   clusterIP: None
   ports:

@@ -13,6 +13,8 @@ metadata:
     helmName: {{ $.Chart.Name }}
   annotations:
     traefik.ingress.kubernetes.io/service.nativelb: "true"
+    traefik.ingress.kubernetes.io/service.serversscheme: https
+    traefik.ingress.kubernetes.io/service.serverstransport: {{ $fullName }}-transport@kubernetescrd
 spec:
   type: ClusterIP
   publishNotReadyAddresses: true
