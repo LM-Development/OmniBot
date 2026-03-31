@@ -10,13 +10,12 @@ metadata:
     helmAppVersion: {{ .Chart.AppVersion }}
     helmName: {{ .Chart.Name }}
   annotations:
-    traefik.ingress.kubernetes.io/service.serversscheme: https
-    traefik.ingress.kubernetes.io/service.serverstransport: {{ $fullName }}-transport@kubernetescrd
+    traefik.ingress.kubernetes.io/service.nativelb: "true"
 spec:
   clusterIP: None
   ports:
   - name: public
     port: 443
-    targetPort: {{ $.Values.internal.port }}
+    targetPort: 81
   selector:
     app: {{ $fullName }}

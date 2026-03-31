@@ -63,6 +63,7 @@ spec:
         #       - .\halt_termination.ps1 *>> halt_termination.log
         ports:
         - containerPort: {{ .Values.internal.port }}
+        - containerPort: 81
         - containerPort: {{ .Values.internal.media }}
         volumeMounts:
         - mountPath: "C:/certs/"

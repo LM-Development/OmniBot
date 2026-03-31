@@ -13,8 +13,6 @@ metadata:
     helmName: {{ $.Chart.Name }}
   annotations:
     traefik.ingress.kubernetes.io/service.nativelb: "true"
-    traefik.ingress.kubernetes.io/service.serversscheme: https
-    traefik.ingress.kubernetes.io/service.serverstransport: {{ $fullName }}-transport@kubernetescrd
 spec:
   type: ClusterIP
   publishNotReadyAddresses: true
@@ -24,7 +22,7 @@ spec:
     targetPort: {{ $.Values.internal.media }}
   - name: signaling
     port: 443
-    targetPort: 80
+    targetPort: 81
   selector:
     statefulset.kubernetes.io/pod-name: {{ $fullName }}-{{ $i }}
 ---
