@@ -29,7 +29,7 @@ spec:
             service:
               name: {{ $fullName }}-{{ $i }}
               port:
-                number: 443
+                number: 80
       {{- end }}
         - path: {{ include "ingress.path" . }}
           pathType: Prefix
@@ -37,4 +37,4 @@ spec:
             service:
               name: {{ $fullName }}-routing
               port:
-                number: 443
+                number: 80
