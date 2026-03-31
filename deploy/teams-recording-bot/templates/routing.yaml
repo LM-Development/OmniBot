@@ -9,8 +9,6 @@ metadata:
     helmVersion: {{ .Chart.Version }}
     helmAppVersion: {{ .Chart.AppVersion }}
     helmName: {{ .Chart.Name }}
-  annotations:
-    traefik.ingress.kubernetes.io/service.nativelb: "true"
 spec:
   clusterIP: None
   ports:
