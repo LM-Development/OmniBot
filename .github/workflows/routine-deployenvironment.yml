@@ -202,6 +202,9 @@ jobs:
       - name: Install Traefik CRDs
         run: |
           echo "📦 Installing Traefik CRDs from dependency chart"
+          # Add Traefik Helm repository
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo update
           # Extract and install CRDs from the Traefik dependency
           helm pull traefik/traefik --version 39.0.7 --untar --untardir /tmp
           kubectl apply -f /tmp/traefik/crds/ --server-side --force-conflicts 2>/dev/null || true
