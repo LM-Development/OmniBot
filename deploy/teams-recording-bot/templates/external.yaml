@@ -19,5 +19,5 @@ spec:
     protocol: TCP
   selector:
     app: {{ $fullName }}
-    statefulset.ubernetes.io/pod-name: {{ $fullName }}-{{ $i }}
+    statefulset.kubernetes.io/pod-name: {{ $fullName }}-{{ $i }}
 {{- end }}
