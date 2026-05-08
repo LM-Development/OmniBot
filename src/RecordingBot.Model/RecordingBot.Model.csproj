@@ -15,5 +15,6 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Graph.Communications.Calls" Version="1.2.0.15690" />
+        <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.0" />
     </ItemGroup>
 </Project>
