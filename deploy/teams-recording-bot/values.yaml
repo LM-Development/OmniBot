@@ -1,6 +1,6 @@
 global:
   override:
-    name: "" 
+    name: ""
     namespace: ""
 
 scale:
@@ -10,12 +10,13 @@ scale:
 host: null
 
 image:
-  registry: null
-  name: null
-  tag: null
+  registry: null # Must be provided at deployment time (e.g., ghcr.io)
+  name: null # Must be provided at deployment time (e.g., org/repo-name)
+  tag: null # Must be provided at deployment time (e.g., CI-generated hash)
   pullPolicy: IfNotPresent
 
 ingress:
+  className: traefik
   path: /
   tls:
     email: YOUR_EMAIL
@@ -68,16 +69,37 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-ingress-nginx:
+ingress-traefik:
   enabled: true
-  controller:
-    ingressClassRessource:
-      enabled: false
-    allowSnippetAnnotations: true
-    replicaCount: 1
-    nodeSelector:
-      "kubernetes.io/os": linux
-    service:
-      enabled: false
-    admissionWebhooks:
-      enabled: false
+  nodeSelector:
+    "kubernetes.io/os": linux
+  ingressClass:
+    enabled: true
+    isDefaultClass: true
+    name: traefik
+  service:
+    spec:
+      loadBalancerIP: "OVERRIDE THIS DURING DEPLOYMENT TO USE CLUSTER PUBLIC IP"
+  deployment:
+    replicas: 3
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "50Mi"
+    limits:
+      cpu: "300m"
+      memory: "150Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70

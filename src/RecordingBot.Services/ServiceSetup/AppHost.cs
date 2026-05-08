@@ -80,7 +80,7 @@ namespace RecordingBot.Services.ServiceSetup
             app.UsePathBase(azureSettings.PodPathBase); 
             app.UsePathBase(azureSettings.ServicePath);
             
-            app.UseHttpsRedirection();
+            //app.UseHttpsRedirection();
 
             app.UseAuthorization();
 

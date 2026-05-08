@@ -13,7 +13,7 @@ spec:
   clusterIP: None
   ports:
   - name: public
-    port: 443
-    targetPort: {{ $.Values.internal.port }}
+    port: 80
+    targetPort: 81
   selector:
     app: {{ $fullName }}

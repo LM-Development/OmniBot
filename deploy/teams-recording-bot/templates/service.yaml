@@ -11,6 +11,8 @@ metadata:
     helmVersion: {{ $.Chart.Version }}
     helmAppVersion: {{ $.Chart.AppVersion }}
     helmName: {{ $.Chart.Name }}
+  annotations:
+    traefik.ingress.kubernetes.io/service.nativelb: "true"
 spec:
   type: ClusterIP
   publishNotReadyAddresses: true
@@ -18,6 +20,9 @@ spec:
   - name: media
     port: {{ $.Values.internal.media }}
     targetPort: {{ $.Values.internal.media }}
+  - name: signaling
+    port: 80
+    targetPort: 81
   selector:
     statefulset.kubernetes.io/pod-name: {{ $fullName }}-{{ $i }}
 ---
