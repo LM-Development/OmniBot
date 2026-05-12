@@ -1,0 +1,30 @@
+{{- $fullName := include "fullName" . -}}
+{{- $namespace := include "namespace" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ $namespace }}
+  labels:
+    app: {{ $fullName }}
+  annotations:
+    {{- if .Values.ingress.annotations }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+  - hosts:
+    - {{ include "hostName" . }}
+    secretName: {{ include "ingress.tls.secretName" . }}
+  rules:
+  - host: {{ include "hostName" . }}
+    http:
+      paths:
+      - path: {{ .Values.ingress.path }}
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ $fullName }}-http
+            port:
+              number: 80

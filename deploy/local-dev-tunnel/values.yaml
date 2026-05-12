@@ -15,10 +15,17 @@ ports:
   signaling: 9441
   media: 8445
 
+ingress:
+  enabled: true
+  className: traefik
+  host: ""
+  path: ""
+  botReleaseName: ""
+  annotations: {}
+
 service:
   type: LoadBalancer
   publicIp: null
-  httpsPort: 8443
   mediaPort: 28551
 
 resources:

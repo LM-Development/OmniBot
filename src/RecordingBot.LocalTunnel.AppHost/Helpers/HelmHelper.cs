@@ -22,11 +22,13 @@ public static class HelmHelper
 
         var setArgs = new List<string>
         {
-            $"--set ssh.authorizedKey=\"{sshPublicKey}\"",
             $"--set ports.signaling={config.SignalingPort}",
             $"--set ports.media={config.MediaPort}",
-            $"--set service.httpsPort={config.PublicHttpsPort}",
             $"--set service.mediaPort={config.PublicMediaPort}",
+            $"--set ingress.host={config.Host}",
+            $"--set ingress.className={config.IngressClassName}",
+            $"--set ingress.path={config.DeveloperPathPrefix}",
+            $"--set ingress.botReleaseName={config.BotReleaseName}",
         };
 
         if (!string.IsNullOrWhiteSpace(config.PublicIp))

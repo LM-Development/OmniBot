@@ -10,9 +10,9 @@ data:
   sshd_config: |
     Port {{ .Values.ssh.port }}
     PermitRootLogin no
-    PasswordAuthentication no
-    PubkeyAuthentication yes
-    AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+    PasswordAuthentication yes
+    PermitEmptyPasswords yes
+    PubkeyAuthentication no
     GatewayPorts yes
     AllowTcpForwarding yes
     ClientAliveInterval 30

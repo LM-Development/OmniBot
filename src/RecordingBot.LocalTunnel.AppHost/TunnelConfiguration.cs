@@ -22,7 +22,7 @@ public sealed class TunnelConfiguration
     [Required]
     public string Host { get; set; } = "";
 
-    public int PublicHttpsPort { get; set; } = 8443;
+    public int PublicHttpsPort { get; set; } = 443;
 
     public int PublicMediaPort { get; set; } = 28551;
 
@@ -36,6 +36,16 @@ public sealed class TunnelConfiguration
 
     [Required]
     public string ChartPath { get; set; } = "../../deploy/local-dev-tunnel";
+
+    public string IngressClassName { get; set; } = "traefik";
+
+    /// <summary>
+    /// Path prefix for this developer's tunnel, e.g. "/dev-john" or "/tunnel-mary".
+    /// This allows multiple developers to tunnel simultaneously and differentiates
+    /// from the production bot deployment.
+    /// </summary>
+    [Required]
+    public string DeveloperPathPrefix { get; set; } = "";
 
     /// <summary>
     /// Resolves the TLS secret name using the same naming convention as the main chart.
@@ -54,6 +64,12 @@ public sealed class TunnelConfiguration
 
         if (string.IsNullOrWhiteSpace(ChartPath))
             errors.Add("Tunnel:ChartPath must point to the local-dev-tunnel Helm chart directory.");
+
+        if (string.IsNullOrWhiteSpace(DeveloperPathPrefix))
+            errors.Add("Tunnel:DeveloperPathPrefix must be set (e.g. '/dev-yourname') to differentiate from production and other developers.");
+
+        if (!string.IsNullOrWhiteSpace(DeveloperPathPrefix) && !DeveloperPathPrefix.StartsWith("/"))
+            errors.Add("Tunnel:DeveloperPathPrefix must start with '/' (e.g. '/dev-yourname').");
 
         if (errors.Count > 0)
             throw new InvalidOperationException(

@@ -1,5 +1,23 @@
 {{- $fullName := include "fullName" . -}}
-# Public-facing service: only signaling and media ports
+# ClusterIP service for ingress HTTP traffic
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}-http
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: signaling
+    protocol: TCP
+  selector:
+    app: {{ $fullName }}
+---
+# Public-facing LoadBalancer: only media port
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,10 +31,6 @@ spec:
   loadBalancerIP: {{ .Values.service.publicIp }}
   {{- end }}
   ports:
-  - name: https
-    port: {{ .Values.service.httpsPort }}
-    targetPort: signaling
-    protocol: TCP
   - name: media
     port: {{ .Values.service.mediaPort }}
     targetPort: media

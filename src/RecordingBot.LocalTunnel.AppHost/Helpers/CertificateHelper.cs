@@ -10,7 +10,10 @@ namespace RecordingBot.LocalTunnel.AppHost.Helpers;
 
 /// <summary>
 /// Extracts TLS certificates from an AKS Kubernetes secret and
-/// saves them as local PFX / PEM files for the bot to load directly.
+/// saves them as local PFX / PEM files for the bot to use for the media port.
+/// 
+/// Note: Signaling (HTTPS) TLS termination is handled by the ingress controller.
+/// The bot only needs the certificate for the media platform (TCP with TLS).
 /// </summary>
 public static class CertificateHelper
 {
@@ -20,6 +23,7 @@ public static class CertificateHelper
     /// <summary>
     /// Extracts the TLS certificate from the Kubernetes secret, converts to PFX,
     /// and returns the absolute path to the PFX file.
+    /// This certificate is used by the bot's media platform for TLS.
     /// </summary>
     public static async Task<string> ExtractAsync(TunnelConfiguration config, CancellationToken ct = default)
     {

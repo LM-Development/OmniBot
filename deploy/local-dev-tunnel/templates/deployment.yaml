@@ -28,11 +28,9 @@ spec:
           apk add --no-cache openssh-server
           ssh-keygen -A
           adduser -D -s /bin/sh tunnel
-          mkdir -p /etc/ssh/authorized_keys
-          echo "{{ .Values.ssh.authorizedKey }}" > /etc/ssh/authorized_keys/tunnel
-          chmod 644 /etc/ssh/authorized_keys/tunnel
+          echo "tunnel:" | chpasswd
           cp /etc/ssh-config/sshd_config /etc/ssh/sshd_config
-          echo "SSH tunnel endpoint ready"
+          echo "SSH tunnel endpoint ready (passwordless, secured by kubectl)"
           exec /usr/sbin/sshd -D -e
         ports:
         - containerPort: {{ .Values.ssh.port }}
