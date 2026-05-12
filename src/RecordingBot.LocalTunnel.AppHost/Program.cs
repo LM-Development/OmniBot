@@ -184,7 +184,7 @@ builder.AddProject<Projects.RecordingBot_Console>("recording-bot")
     .WithEnvironment("AzureSettings__PlaceCallEndpointUrl", "https://graph.microsoft.com/v1.0")
 
     // Pod identification
-    .WithEnvironment("AzureSettings__PodName", "bot-0")
+    .WithEnvironment("AzureSettings__PodName", "local")
 
     // Media recording configuration
     .WithEnvironment("AzureSettings__MediaFolder", builder.Configuration["AzureSettings:MediaFolder"] ?? "archive")
