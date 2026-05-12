@@ -48,20 +48,20 @@ string externalIp;
 try
 {
     // ── Phase 1: Deploy tunnel chart ─────────────────────────────────
-    Console.WriteLine("[1/4] Helm Chart Deployment");
-    Console.WriteLine("  Deploying tunnel pod with ingress (passwordless SSH)...");
+    Console.WriteLine("[1/3] Helm Chart Deployment");
+    Console.WriteLine("  Deploying tunnel pod with ingress...");
     await HelmHelper.DeployAsync(config, string.Empty);
     Console.WriteLine("  ✓ Tunnel pod deployed");
     Console.WriteLine();
 
     // ── Phase 2: Extract certificate to local PFX ───────────────────
-    Console.WriteLine("[2/4] Certificate Extraction");
+    Console.WriteLine("[2/3] Certificate Extraction");
     Console.WriteLine("  Extracting TLS certificate for media port...");
     certPath = await CertificateHelper.ExtractAsync(config);
     Console.WriteLine();
 
     // ── Phase 3: Wait for LoadBalancer IP ────────────────────────────
-    Console.WriteLine("[3/4] LoadBalancer");
+    Console.WriteLine("[3/3] LoadBalancer");
     externalIp = await KubernetesHelper.WaitForLoadBalancerIpAsync(config);
     Console.WriteLine();
 
@@ -140,7 +140,6 @@ var sshCommand =
     $"while ! nc -z localhost {config.LocalSshPort} 2>/dev/null; do " +
     $"echo 'Port {config.LocalSshPort} not ready, waiting for kubectl port-forward...'; sleep 3; done && " +
     $"echo 'Port {config.LocalSshPort} is ready! Establishing SSH tunnel...' && " +
-    $"echo 'Note: Using passwordless SSH (secured by kubectl port-forward)' && " +
     $"while true; do " +
     $"echo | ssh -tt " +
     $"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ExitOnForwardFailure=yes " +
