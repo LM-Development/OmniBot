@@ -2,11 +2,10 @@
   "profiles": {
     "RecordingBot.Console": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:9441;http://localhost:9442"
+      }
     }
   }
 }

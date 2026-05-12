@@ -44,9 +44,15 @@ namespace RecordingBot.Services.ServiceSetup
             // Setup Listening Urls
             builder.WebHost.UseKestrel(serverOptions =>
             {
-                serverOptions.ListenAnyIP(azureSettings.CallSignalingPort + 1);
-                serverOptions.ListenAnyIP(azureSettings.CallSignalingPort, config => config.UseHttps(azureSettings.Certificate));
+                // Disable port fallback - fail fast if port is in use
+                serverOptions.Listen(IPAddress.Any, azureSettings.CallSignalingPort + 1, listenOptions =>
+                {
+                    //listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+                });
             });
+
+            // Override launch settings to prevent port conflicts
+            builder.WebHost.UseUrls();
 
             // Add services to the container.
             builder.Services.AddControllers().AddJsonOptions(options =>
@@ -77,14 +83,13 @@ namespace RecordingBot.Services.ServiceSetup
             }
 
             // Configure the HTTP request pipeline.
-            app.UsePathBase(azureSettings.PodPathBase); 
-            app.UsePathBase(azureSettings.ServicePath);
-            
+            app.UsePathBase(azureSettings.PodPathBase);
+
             //app.UseHttpsRedirection();
 
-            app.UseAuthorization();
-
             app.UseRouting();
+
+            app.UseAuthorization();
 
             app.MapControllers();
 
