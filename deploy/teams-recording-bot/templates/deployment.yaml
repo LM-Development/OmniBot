@@ -52,17 +52,18 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriod }}
       containers:
       - name: recording-bot
-        image: "{{ .Values.image.registry }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ .Values.image.registry }}/{{ .Values.image.name }}:{{ required "image.tag must be specified" .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - powershell
-              - Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine;
-              - .\halt_termination.ps1 *>> halt_termination.log
+        # lifecycle:
+        #   preStop:
+        #     exec:
+        #       command:
+        #       - powershell
+        #       - Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine;
+        #       - .\halt_termination.ps1 *>> halt_termination.log
         ports:
         - containerPort: {{ .Values.internal.port }}
+        - containerPort: 81
         - containerPort: {{ .Values.internal.media }}
         volumeMounts:
         - mountPath: "C:/certs/"

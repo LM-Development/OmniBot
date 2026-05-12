@@ -4,80 +4,79 @@ on:
   workflow_call:
     inputs:
       environment-name:
-        description: 'Name of the environment to deploy'
+        description: "Name of the environment to deploy"
         required: true
         type: string
-        default: 'teams-recording-bot'
+        default: "teams-recording-bot"
       port:
-        description: 'Port number for the service (internal.port)'
+        description: "Port number for the service (internal.port)"
         required: true
         type: string
-        default: '28550'
+        default: "28550"
       cluster-name:
-        description: 'Name of the AKS cluster'
+        description: "Name of the AKS cluster"
         required: false
         type: string
-        default: 'aks-sample-cluster'
+        default: "aks-sample-cluster"
       resource-group:
-        description: 'Resource group containing the AKS cluster'
+        description: "Resource group containing the AKS cluster"
         required: false
         type: string
-        default: 'aks-sample-rg'
+        default: "aks-sample-rg"
       subscription:
-        description: 'Azure subscription ID'
+        description: "Azure subscription ID"
         required: false
         type: string
-        default: ''
+        default: ""
       namespace:
-        description: 'Kubernetes namespace to deploy to'
+        description: "Kubernetes namespace to deploy to"
         required: false
         type: string
-        default: 'teams-recording-bot'
+        default: "teams-recording-bot"
       host:
-        description: 'Host domain for the bot (required)'
+        description: "Host domain for the bot (required)"
         required: true
         type: string
       image-registry:
-        description: 'Container registry URL'
+        description: "Container registry URL"
         required: true
         type: string
       image-name:
-        description: 'Container image name'
+        description: "Container image name"
         required: true
         type: string
       image-tag:
-        description: 'Container image tag'
-        required: false
+        description: "Container image tag"
+        required: true
         type: string
-        default: 'latest'
       public-ip:
-        description: 'Static public IP address for LoadBalancer'
+        description: "Static public IP address for LoadBalancer"
         required: true
         type: string
       tls-email:
-        description: 'Email for TLS certificate generation'
+        description: "Email for TLS certificate generation"
         required: true
         type: string
       enable-nginx:
-        description: 'Enable nginx ingress controller'
+        description: "Enable nginx ingress controller"
         required: false
         type: boolean
         default: true
       replica-count:
-        description: 'Number of bot replicas to deploy'
+        description: "Number of bot replicas to deploy"
         required: false
         type: string
-        default: '1'
+        default: "1"
     outputs:
       deployment-status:
-        description: 'Status of the deployment'
+        description: "Status of the deployment"
         value: ${{ jobs.deploy.outputs.deployment-status }}
       service-url:
-        description: 'URL of the deployed service'
+        description: "URL of the deployed service"
         value: ${{ jobs.deploy.outputs.service-url }}
     secrets:
       AZURE_CREDENTIALS:
-        description: 'Azure credentials for authentication'
+        description: "Azure credentials for authentication"
         required: true
 
 env:
@@ -103,112 +102,144 @@ jobs:
       service-url: ${{ steps.get-service-url.outputs.url }}
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Get AKS credentials
-      run: |
-        echo "🔑 Getting AKS credentials"
-        az aks get-credentials --name ${{ env.CLUSTER_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --subscription ${{ env.AZURE_SUBSCRIPTION_ID }} --overwrite-existing
+      - name: Get AKS credentials
+        run: |
+          echo "🔑 Getting AKS credentials"
+          az aks get-credentials --name ${{ env.CLUSTER_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --subscription ${{ env.AZURE_SUBSCRIPTION_ID }} --overwrite-existing
 
-    - name: Install Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: 'latest'
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.14.0"
 
-    - name: Update Helm dependencies
-      run: |
-        echo "📦 Updating Helm dependencies"
-        helm dependency update
+      - name: Update Helm dependencies
+        run: |
+          echo "📦 Updating Helm dependencies"
+          helm dependency update
 
-    - name: Create namespace if not exists
-      run: |
-        echo "🔧 Ensuring namespace ${{ env.NAMESPACE }} exists"
-        kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+      - name: Create namespace if not exists
+        run: |
+          echo "🔧 Ensuring namespace ${{ env.NAMESPACE }} exists"
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Prepare Helm values
-      id: helm-values
-      run: |
-        echo "📝 Preparing Helm values for environment: ${{ env.ENVIRONMENT_NAME }}"
-        
-        # Create a temporary values file with environment-specific settings
-        cat > /tmp/environment-values.yaml << EOF        
-        scale:
-          replicaCount: ${{ inputs.replica-count }}
-          maxReplicaCount: ${{ inputs.replica-count }}
-        
-        host: "${{ inputs.host }}"
-        
-        image:
-          registry: "${{ inputs.image-registry }}"
-          name: "${{ inputs.image-name }}"
-          tag: "${{ inputs.image-tag }}"
-        
-        ingress:
-          tls:
-            email: "${{ inputs.tls-email }}"
-        
-        internal:
-          port: 80
-          media: 8445
-        
-        public:
-          media: ${{ env.PORT}}
-          ip: "${{ inputs.public-ip }}"
-        
-        ingress-nginx:
-          enabled: ${{ inputs.enable-nginx }}
-        EOF
-        
-        echo "values-file-path=/tmp/environment-values.yaml" >> $GITHUB_OUTPUT
-        
-        echo "📄 Generated values file:"
-        cat /tmp/environment-values.yaml
+      - name: Validate inputs
+        run: |
+          echo "🔍 Validating deployment inputs"
+          if [[ -z "${{ inputs.image-tag }}" || "${{ inputs.image-tag }}" == "null" ]]; then
+            echo "❌ Error: image-tag is required and cannot be empty"
+            exit 1
+          fi
+          if [[ -z "${{ inputs.image-registry }}" || "${{ inputs.image-registry }}" == "null" ]]; then
+            echo "❌ Error: image-registry is required and cannot be empty"
+            exit 1
+          fi
+          if [[ -z "${{ inputs.image-name }}" || "${{ inputs.image-name }}" == "null" ]]; then
+            echo "❌ Error: image-name is required and cannot be empty"
+            exit 1
+          fi
+          echo "✅ All required inputs are valid"
+          echo "Image will be: ${{ inputs.image-registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
-    - name: Validate Helm chart
-      run: |
-        echo "✅ Validating Helm chart"
-        helm template ${{ env.RELEASE_NAME }} ./ \
-          --namespace ${{ env.NAMESPACE }} \
-          --values ${{ steps.helm-values.outputs.values-file-path }} \
-          --dry-run > /dev/null
-        echo "✅ Helm chart validation passed"
+      - name: Prepare Helm values
+        id: helm-values
+        run: |
+          echo "📝 Preparing Helm values for environment: ${{ env.ENVIRONMENT_NAME }}"
 
-    - name: Deploy with Helm
-      run: |
-        echo "🚀 Deploying ${{ env.ENVIRONMENT_NAME }} Teams Recording Bot to Kubernetes"
-        helm upgrade --install ${{ env.RELEASE_NAME }} ./ \
-          --namespace ${{ env.NAMESPACE }} \
-          --values ${{ steps.helm-values.outputs.values-file-path }} \
-          --wait \
-          --timeout 15m
-        echo "✅ Deployment completed successfully"
+          # Create a temporary values file with environment-specific settings
+          cat > /tmp/environment-values.yaml << EOF        
+          scale:
+            replicaCount: ${{ inputs.replica-count }}
+            maxReplicaCount: ${{ inputs.replica-count }}
 
-    - name: Verify deployment
-      run: |
-        echo "🔍 Verifying deployment"
-        kubectl get pods -n ${{ env.NAMESPACE }} -l app=${{ env.RELEASE_NAME }}
-        kubectl get services -n ${{ env.NAMESPACE }}
-        kubectl get ingress -n ${{ env.NAMESPACE }}
-        
-        # Wait for StatefulSet to be ready
-        kubectl wait --for=condition=ready pod -l app=${{ env.RELEASE_NAME }} -n ${{ env.NAMESPACE }} --timeout=1200s
-        echo "✅ All pods are ready"
+          host: "${{ inputs.host }}"
 
-    - name: Display deployment summary
-      run: |
-        echo "📋 Teams Recording Bot Deployment Summary:"
-        echo "  Environment: ${{ env.ENVIRONMENT_NAME }}"
-        echo "  Namespace: ${{ env.NAMESPACE }}"
-        echo "  Release Name: ${{ env.RELEASE_NAME }}"
-        echo "  Host: ${{ inputs.host }}"
-        echo "  Image: ${{ inputs.image-registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
-        echo "  Replicas: ${{ inputs.replica-count }}"
-        echo "  Internal Port: ${{ env.PORT }}"
-        echo "  Public IP: ${{ inputs.public-ip }}"
-        echo "  Nginx Enabled: ${{ inputs.enable-nginx }}"
+          image:
+            registry: "${{ inputs.image-registry }}"
+            name: "${{ inputs.image-name }}"
+            tag: "${{ inputs.image-tag }}"
+
+          ingress:
+            tls:
+              email: "${{ inputs.tls-email }}"
+
+          internal:
+            port: 80
+            media: 8445
+
+          public:
+            media: ${{ env.PORT}}
+            ip: "${{ inputs.public-ip }}"
+
+          ingress-traefik:
+            enabled: ${{ inputs.enable-ingress }}
+            service:
+              spec:
+                loadBalancerIP: "${{ inputs.public-ip }}"
+          EOF
+
+          echo "values-file-path=/tmp/environment-values.yaml" >> $GITHUB_OUTPUT
+
+          echo "📄 Generated values file:"
+          cat /tmp/environment-values.yaml
+
+      - name: Validate Helm chart
+        run: |
+          echo "✅ Validating Helm chart"
+          helm template ${{ env.RELEASE_NAME }} ./ \
+            --namespace ${{ env.NAMESPACE }} \
+            --values ${{ steps.helm-values.outputs.values-file-path }} \
+            --dry-run > /dev/null
+          echo "✅ Helm chart validation passed"
+
+      - name: Install Traefik CRDs
+        run: |
+          echo "📦 Installing Traefik CRDs from dependency chart"
+          # Add Traefik Helm repository
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo update
+          # Extract and install CRDs from the Traefik dependency
+          helm pull traefik/traefik --version 39.0.7 --untar --untardir /tmp
+          kubectl apply -f /tmp/traefik/crds/ --server-side --force-conflicts 2>/dev/null || true
+          echo "✅ Traefik CRDs installed"
+
+      - name: Deploy with Helm
+        run: |
+          echo "🚀 Deploying ${{ env.ENVIRONMENT_NAME }} Teams Recording Bot to Kubernetes"
+          helm upgrade --install ${{ env.RELEASE_NAME }} ./ \
+            --namespace ${{ env.NAMESPACE }} \
+            --values ${{ steps.helm-values.outputs.values-file-path }} \
+            --wait \
+            --timeout 15m
+          echo "✅ Deployment completed successfully"
+
+      - name: Verify deployment
+        run: |
+          echo "🔍 Verifying deployment"
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=${{ env.RELEASE_NAME }}
+          kubectl get services -n ${{ env.NAMESPACE }}
+          kubectl get ingress -n ${{ env.NAMESPACE }}
+
+          # Wait for StatefulSet to be ready
+          kubectl wait --for=condition=ready pod -l app=${{ env.RELEASE_NAME }} -n ${{ env.NAMESPACE }} --timeout=1200s
+          echo "✅ All pods are ready"
+
+      - name: Display deployment summary
+        run: |
+          echo "📋 Teams Recording Bot Deployment Summary:"
+          echo "  Environment: ${{ env.ENVIRONMENT_NAME }}"
+          echo "  Namespace: ${{ env.NAMESPACE }}"
+          echo "  Release Name: ${{ env.RELEASE_NAME }}"
+          echo "  Host: ${{ inputs.host }}"
+          echo "  Image: ${{ inputs.image-registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+          echo "  Replicas: ${{ inputs.replica-count }}"
+          echo "  Internal Port: ${{ env.PORT }}"
+          echo "  Public IP: ${{ inputs.public-ip }}"
+          echo "  Nginx Enabled: ${{ inputs.enable-nginx }}"

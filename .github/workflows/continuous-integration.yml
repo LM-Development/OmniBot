@@ -16,7 +16,7 @@ on:
       - .github/workflows/continuous-integration.yml
   schedule:
     # Sunday at 2 PM UTC (Sunday afternoon)
-    - cron: '0 14 * * 0'
+    - cron: "0 14 * * 0"
 
 env:
   PR_NUMBER: ${{ github.event.number }}
@@ -28,7 +28,7 @@ concurrency:
 jobs:
   check-recording-bot-changes:
     runs-on: ubuntu-latest
-    outputs: 
+    outputs:
       build: ${{ steps.changes.outputs.build }}
       deploy: ${{ steps.changes.outputs.deploy }}
       docs: ${{ steps.changes.outputs.docs }}
@@ -85,21 +85,21 @@ jobs:
     defaults:
       run:
         working-directory: deploy
-    
+
     outputs:
       app-version-check-passed: ${{ steps.app-version-check.outcome }}
       chart-version-check-passed: ${{ steps.chart-version-check.outcome }}
-    
+
     steps:
       - uses: actions/checkout@v4
       - run: |
-           git fetch 
-           git branch -a
+          git fetch 
+          git branch -a
 
       - name: Install Helm
         uses: azure/setup-helm@v3
         with:
-          version: 'latest'
+          version: "latest"
 
       - name: Lint Helm Chart
         working-directory: deploy/teams-recording-bot
@@ -120,39 +120,39 @@ jobs:
           )
         shell: bash
         run: |
-            echo "🔍 Checking app version changes..."
-            oldVersion=$(MSYS_NO_PATHCONV=1 git show remotes/origin/$GITHUB_BASE_REF:deploy/teams-recording-bot/Chart.yaml | sed -n "s/^appVersion: \([0-9\.]*\)$/\1/p")
-            echo "Previous app Version: $oldVersion"
-            [ -z "$oldVersion" ] && exit 1
+          echo "🔍 Checking app version changes..."
+          oldVersion=$(MSYS_NO_PATHCONV=1 git show remotes/origin/$GITHUB_BASE_REF:deploy/teams-recording-bot/Chart.yaml | sed -n "s/^appVersion: \([0-9\.]*\)$/\1/p")
+          echo "Previous app Version: $oldVersion"
+          [ -z "$oldVersion" ] && exit 1
 
-            newVersion=$(cat teams-recording-bot/Chart.yaml | sed -n "s/^appVersion: \([0-9\.]*\)$/\1/p")
-            echo "New app Version: $newVersion"
-            [ -z "$newVersion" ] && exit 1
+          newVersion=$(cat teams-recording-bot/Chart.yaml | sed -n "s/^appVersion: \([0-9\.]*\)$/\1/p")
+          echo "New app Version: $newVersion"
+          [ -z "$newVersion" ] && exit 1
 
-            echo "Check if app Version was updated"
-            [ "$newVersion" = "$oldVersion" ] && exit 1
-            newerVersion=$(echo -e "$oldVersion\n$newVersion" | sort -V | tail -1)
-            [ "$newerVersion" = "$newVersion" ] || exit 1
-            echo "✅ Success app Version was updated!"
+          echo "Check if app Version was updated"
+          [ "$newVersion" = "$oldVersion" ] && exit 1
+          newerVersion=$(echo -e "$oldVersion\n$newVersion" | sort -V | tail -1)
+          [ "$newerVersion" = "$newVersion" ] || exit 1
+          echo "✅ Success app Version was updated!"
 
       - name: Check Chart Version Change (PR only)
         if: github.event_name == 'pull_request' && needs.check-recording-bot-changes.outputs.deploy == 'True'
         shell: bash
         run: |
-            echo "🔍 Checking chart version changes..."
-            oldVersion=$(MSYS_NO_PATHCONV=1 git show remotes/origin/$GITHUB_BASE_REF:deploy/teams-recording-bot/Chart.yaml | sed -n "s/^version: \([0-9\.]*\)$/\1/p")
-            echo "Previous Version: $oldVersion"
-            [ -z "$oldVersion" ] && exit 1
-    
-            newVersion=$(cat teams-recording-bot/Chart.yaml | sed -n "s/^version: \([0-9\.]*\)$/\1/p")
-            echo "New Version: $newVersion"
-            [ -z "$newVersion" ] && exit 1
-    
-            echo "Check if Version was updated"
-            [ "$newVersion" = "$oldVersion" ] && exit 1
-            newerVersion=$(echo -e "$oldVersion\n$newVersion" | sort -V | tail -1)
-            [ "$newerVersion" = "$newVersion" ] || exit 1
-            echo "✅ Success Version was updated!"
+          echo "🔍 Checking chart version changes..."
+          oldVersion=$(MSYS_NO_PATHCONV=1 git show remotes/origin/$GITHUB_BASE_REF:deploy/teams-recording-bot/Chart.yaml | sed -n "s/^version: \([0-9\.]*\)$/\1/p")
+          echo "Previous Version: $oldVersion"
+          [ -z "$oldVersion" ] && exit 1
+
+          newVersion=$(cat teams-recording-bot/Chart.yaml | sed -n "s/^version: \([0-9\.]*\)$/\1/p")
+          echo "New Version: $newVersion"
+          [ -z "$newVersion" ] && exit 1
+
+          echo "Check if Version was updated"
+          [ "$newVersion" = "$oldVersion" ] && exit 1
+          newerVersion=$(echo -e "$oldVersion\n$newVersion" | sort -V | tail -1)
+          [ "$newerVersion" = "$newVersion" ] || exit 1
+          echo "✅ Success Version was updated!"
 
   start-cluster:
     needs: [check-recording-bot-changes, chart-version-checks]
@@ -166,11 +166,11 @@ jobs:
       )
     uses: ./.github/workflows/routine-managecluster.yml
     with:
-      action: 'start'
+      action: "start"
       cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
       resource-group: ${{ vars.AKS_RESOURCE_GROUP }}
       subscription: ${{ vars.AZURE_SUBSCRIPTION_ID  }}
-    secrets: 
+    secrets:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   generate-image-tag:
@@ -179,15 +179,15 @@ jobs:
       needs.chart-version-checks.result == 'success' &&
       (
         needs.check-recording-bot-changes.outputs.build == 'True' || 
-        needs.check-recording-bot-changes.outputs.src == 'True' ||
-        needs.check-recording-bot-changes.outputs.scripts == 'True'
+        needs.check-recording-bot-changes.outputs.deploy == 'True' ||
+        needs.check-recording-bot-changes.outputs.scripts == 'True' || 
+        needs.check-recording-bot-changes.outputs.src == 'True'
       )
     runs-on: ubuntu-latest
-    
     outputs:
       image-tag: ${{ steps.generate-tag.outputs.tag }}
       image-exists: ${{ steps.check-image.outputs.image-exists }}
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -197,29 +197,44 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-        
+
       - name: Generate content-based image tag
         id: generate-tag
         run: |
-            hash=$(find src build scripts -type f -exec sha256sum {} \; | sort | sha256sum | awk '{print $1}')
-            if [ '${{ github.event_name }}' = 'pull_request' ]; then
-              echo "tag=pr-${{ github.event.number }}-${hash:0:8}" >> $GITHUB_OUTPUT
+          hash=$(find src build scripts -type f -exec sha256sum {} \; | sort | sha256sum | awk '{print $1}')
+          base_tag=${hash:0:8}
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            # For PRs, first check if the base hash (main branch) image exists
+            if docker manifest inspect ${{ vars.CR_NAMESPACE_REPOSITORY }}:${base_tag} > /dev/null 2>&1; then
+              echo "✅ Found existing image for hash ${base_tag}, reusing for PR"
+              echo "tag=${base_tag}" >> $GITHUB_OUTPUT
+              echo "reused-main-image=true" >> $GITHUB_OUTPUT
             else
-              echo "tag=${hash:0:8}" >> $GITHUB_OUTPUT
+              echo "❌ No existing image for hash ${base_tag}, will build PR-specific image"
+              pr_tag="pr-${{ github.event.number }}-${base_tag}"
+              echo "tag=${pr_tag}" >> $GITHUB_OUTPUT
+              echo "reused-main-image=false" >> $GITHUB_OUTPUT
             fi
+          else
+            echo "tag=${base_tag}" >> $GITHUB_OUTPUT
+            echo "reused-main-image=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check if image exists
         id: check-image
         run: |
           if docker manifest inspect ${{ vars.CR_NAMESPACE_REPOSITORY }}:${{ steps.generate-tag.outputs.tag }} > /dev/null 2>&1; then
-            echo "Image already exists"
+            echo "Image already exists: ${{ steps.generate-tag.outputs.tag }}"
             echo "image-exists=true" >> $GITHUB_OUTPUT
           else
+            echo "Image does not exist: ${{ steps.generate-tag.outputs.tag }}"
             echo "image-exists=false" >> $GITHUB_OUTPUT
           fi
 
   build-docker-image:
-    needs: [check-recording-bot-changes, chart-version-checks, generate-image-tag]
+    needs:
+      [check-recording-bot-changes, chart-version-checks, generate-image-tag]
     if: |
       needs.chart-version-checks.result == 'success' &&
       (
@@ -237,7 +252,14 @@ jobs:
     secrets: inherit
 
   deploy-to-environment:
-    needs: [check-recording-bot-changes, chart-version-checks, start-cluster, build-docker-image, generate-image-tag]
+    needs:
+      [
+        check-recording-bot-changes,
+        chart-version-checks,
+        start-cluster,
+        build-docker-image,
+        generate-image-tag,
+      ]
     if: |
       always() &&
       needs.start-cluster.result == 'success' &&
@@ -249,7 +271,7 @@ jobs:
     uses: ./.github/workflows/routine-deployenvironment.yml
     with:
       environment-name: aks-sample
-      port: '28550'
+      port: "28550"
       cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
       resource-group: ${{ vars.AKS_RESOURCE_GROUP }}
       subscription: ${{ vars.AZURE_SUBSCRIPTION_ID }}
@@ -261,12 +283,20 @@ jobs:
       public-ip: ${{ needs.start-cluster.outputs.cluster-ip }}
       tls-email: ${{ vars.TLS_EMAIL }}
       enable-nginx: true
-      replica-count: '1'
+      replica-count: "1"
     secrets:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   run-tests:
-    needs: [check-recording-bot-changes, chart-version-checks, start-cluster, build-docker-image, deploy-to-environment, generate-image-tag]
+    needs:
+      [
+        check-recording-bot-changes,
+        chart-version-checks,
+        start-cluster,
+        build-docker-image,
+        deploy-to-environment,
+        generate-image-tag,
+      ]
     if: always() && needs.deploy-to-environment.result == 'success'
     uses: ./.github/workflows/routine-runtests.yml
     with:
