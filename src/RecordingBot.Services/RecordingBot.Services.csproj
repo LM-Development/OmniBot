@@ -18,6 +18,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Azure.AI.VoiceLive" Version="1.1.0-beta.3" />
+        <PackageReference Include="Azure.Identity" Version="1.13.2" />
         <PackageReference Include="Azure.Messaging.EventGrid" Version="5.0.0" />
         <PackageReference Include="Microsoft.Skype.Bots.Media" Version="1.32.0.70-preview" />
         <PackageReference Include="NAudio" Version="2.2.1" />

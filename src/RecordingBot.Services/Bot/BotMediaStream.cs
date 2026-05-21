@@ -5,6 +5,7 @@ using Microsoft.Graph.Communications.Common.Telemetry;
 using Microsoft.Skype.Bots.Media;
 using RecordingBot.Services.Contract;
 using RecordingBot.Services.Media;
+using RecordingBot.Services.ServiceSetup;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -13,12 +14,15 @@ namespace RecordingBot.Services.Bot
 {
     /// <summary>
     /// Class responsible for streaming audio and video.
+    /// When VoiceLive is configured in AzureSettings, audio is routed through the
+    /// Voice Live agent and the agent's spoken responses are injected back into the call.
+    /// Otherwise the bot records audio to disk as before.
     /// </summary>
     public class BotMediaStream : ObjectRootDisposable
     {
         internal List<IParticipant> participants;
         private readonly IAudioSocket _audioSocket;
-        private readonly MediaStream _mediaStream;
+        private readonly IMediaStream _mediaStream;
         private readonly IEventPublisher _eventPublisher;
         private readonly string _callId;
         public SerializableAudioQualityOfExperienceData AudioQualityOfExperienceData { get; private set; }
@@ -38,13 +42,24 @@ namespace RecordingBot.Services.Bot
 
             _eventPublisher = eventPublisher;
             _callId = callId;
-            _mediaStream = new MediaStream(settings, logger, mediaSession.MediaSessionId.ToString());
 
             // Subscribe to the audio media.
             _audioSocket = mediaSession.AudioSocket;
             if (_audioSocket == null)
             {
                 throw new InvalidOperationException("A mediaSession needs to have at least an audioSocket");
+            }
+
+            // Use VoiceLiveMediaStream when VoiceLive is configured; fall back to WAV recording.
+            var azureSettings = (AzureSettings)settings;
+            if (azureSettings.VoiceLiveSettings?.IsConfigured == true)
+            {
+                _mediaStream = new VoiceLiveMediaStream(
+                    azureSettings.VoiceLiveSettings, _audioSocket, logger);
+            }
+            else
+            {
+                _mediaStream = new MediaStream(settings, logger, mediaSession.MediaSessionId.ToString());
             }
 
             _audioSocket.AudioMediaReceived += OnAudioMediaReceived;
@@ -77,11 +92,14 @@ namespace RecordingBot.Services.Bot
             base.Dispose(disposing);
 
             _audioSocket.AudioMediaReceived -= OnAudioMediaReceived;
+
+            if (_mediaStream is IDisposable disposableStream)
+                disposableStream.Dispose();
         }
 
         private async void OnAudioMediaReceived(object sender, AudioMediaReceivedEventArgs e)
         {
-            GraphLogger.Info($"Received Audio: [AudioMediaReceivedEventArgs(Data=<{e.Buffer.Data}>, Length={e.Buffer.Length}, Timestamp={e.Buffer.Timestamp})]");
+            GraphLogger.Verbose($"Received Audio: [AudioMediaReceivedEventArgs(Data=<{e.Buffer.Data}>, Length={e.Buffer.Length}, Timestamp={e.Buffer.Timestamp})]");
 
             try
             {

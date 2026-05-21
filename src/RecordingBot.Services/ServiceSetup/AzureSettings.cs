@@ -37,6 +37,7 @@ namespace RecordingBot.Services.ServiceSetup
         public bool IsStereo { get; set; }
         public int WAVSampleRate { get; set; }
         public int WAVQuality { get; set; }
+        public VoiceLiveSettings VoiceLiveSettings { get; set; } = new();
         public PathString PodPathBase { get; private set; }
         public X509Certificate2 Certificate { get; private set; }
 
