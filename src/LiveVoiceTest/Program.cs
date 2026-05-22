@@ -143,7 +143,18 @@ class AudioProcessor : IDisposable
         {
             foreach (var audioData in _playbackQueue.GetConsumingEnumerable(ct))
             {
-                _playbackBuffer?.AddSamples(audioData, 0, audioData.Length);
+                // Apply backpressure: wait until there is room in the playback buffer
+                // before adding more samples. This prevents overflow discards that
+                // cause choppy audio during long responses.
+                if (_playbackBuffer is not null)
+                {
+                    while (_playbackBuffer.BufferedDuration >= TimeSpan.FromSeconds(8))
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        Thread.Sleep(20);
+                    }
+                    _playbackBuffer.AddSamples(audioData, 0, audioData.Length);
+                }
             }
         }
         catch (OperationCanceledException) { }
