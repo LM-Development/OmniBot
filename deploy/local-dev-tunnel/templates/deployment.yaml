@@ -1,0 +1,51 @@
+{{- $fullName := include "fullName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $fullName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $fullName }}
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: sshd
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          apk add --no-cache openssh-server
+          ssh-keygen -A
+          adduser -D -s /bin/sh tunnel
+          echo "tunnel:" | chpasswd
+          cp /etc/ssh-config/sshd_config /etc/ssh/sshd_config
+          echo "SSH tunnel endpoint ready (passwordless, secured by kubectl)"
+          exec /usr/sbin/sshd -D -e
+        ports:
+        - containerPort: {{ .Values.ssh.port }}
+          name: ssh
+        - containerPort: {{ .Values.ports.signaling }}
+          name: signaling
+        - containerPort: {{ .Values.ports.media }}
+          name: media
+        volumeMounts:
+        - name: ssh-config
+          mountPath: /etc/ssh-config
+          readOnly: true
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+      - name: ssh-config
+        configMap:
+          name: {{ $fullName }}-ssh-config

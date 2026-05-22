@@ -1,0 +1,57 @@
+{{- $fullName := include "fullName" . -}}
+# ClusterIP service for ingress HTTP traffic
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}-http
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: signaling
+    protocol: TCP
+  selector:
+    app: {{ $fullName }}
+---
+# Public-facing LoadBalancer: only media port
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if .Values.service.publicIp }}
+  loadBalancerIP: {{ .Values.service.publicIp }}
+  {{- end }}
+  ports:
+  - name: media
+    port: {{ .Values.service.mediaPort }}
+    targetPort: media
+    protocol: TCP
+  selector:
+    app: {{ $fullName }}
+---
+# Internal SSH service: reachable only via kubectl port-forward
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}-ssh
+  namespace: {{ include "namespace" . }}
+  labels:
+    app: {{ $fullName }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: ssh
+    port: {{ .Values.ssh.port }}
+    targetPort: ssh
+    protocol: TCP
+  selector:
+    app: {{ $fullName }}

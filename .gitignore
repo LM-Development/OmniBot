@@ -7,6 +7,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# Local tunnel key material and certificates
+.aks-tunnel/
+
 # User-specific files
 *.rsuser
 *.suo
@@ -405,3 +408,4 @@ FodyWeavers.xsd
 *.env
 deploy/teams-recording-bot/charts/*
 src/RecordingBot.Console/cache/*
+/src/RecordingBot.Console/ecs-cache
