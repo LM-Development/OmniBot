@@ -6,6 +6,14 @@ using System.Text.Json;
 
 namespace LiveVoiceTest;
 
+/// <summary>Describes a single column from a SharePoint list.</summary>
+internal sealed record ListColumn(
+    string DisplayName,
+    string InternalName,
+    string Type,
+    bool Required,
+    string? Description);
+
 /// <summary>
 /// Fetches SharePoint list items using app-only client-credentials authentication
 /// against the Microsoft Graph REST API.
@@ -25,10 +33,134 @@ internal sealed class SharePointService
     // Resolved list GUID cache — display names in URL paths are unreliable
     private string? _resolvedListId;
 
+    // Schema cache — fetched once at startup
+    private IReadOnlyList<ListColumn>? _schema;
+
     public SharePointService(SharePointOptions options, HttpClient? http = null)
     {
         _options = options;
         _http = http ?? new HttpClient();
+    }
+
+    /// <summary>
+    /// Returns the parsed column schema, fetching it once and caching the result.
+    /// </summary>
+    public async Task<IReadOnlyList<ListColumn>> GetSchemaAsync(CancellationToken ct = default)
+    {
+        if (_schema is not null)
+            return _schema;
+
+        var token = await GetAccessTokenAsync(ct).ConfigureAwait(false);
+        var siteId = await ResolveSiteIdAsync(token, ct).ConfigureAwait(false);
+        var listId = await ResolveListIdAsync(token, siteId, ct).ConfigureAwait(false);
+
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/columns";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+
+        var columns = new List<ListColumn>();
+        foreach (var col in doc.RootElement.GetProperty("value").EnumerateArray())
+        {
+            var hidden = col.TryGetProperty("hidden", out var h) && h.GetBoolean();
+            var readOnly = col.TryGetProperty("readOnly", out var ro) && ro.GetBoolean();
+            if (hidden || readOnly)
+                continue;
+
+            var internalName = col.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+
+            // Skip built-in columns that cannot be set on item creation
+            if (internalName is "Title" or "id" or "ID")
+                continue;
+
+            columns.Add(new ListColumn(
+                DisplayName: col.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? internalName : internalName,
+                InternalName: internalName,
+                Type: ResolveColumnType(col),
+                Required: col.TryGetProperty("required", out var req) && req.GetBoolean(),
+                Description: col.TryGetProperty("description", out var desc) ? desc.GetString() : null));
+        }
+
+        _schema = columns;
+        Console.WriteLine($"Loaded SharePoint list schema: {columns.Count} writable columns " +
+                          $"({columns.Count(c => c.Required)} required)");
+        return _schema;
+    }
+
+    /// <summary>
+    /// Returns the schema as a JSON string for voice responses.
+    /// </summary>
+    public async Task<string> GetListSchemaAsync(CancellationToken ct = default)
+    {
+        var schema = await GetSchemaAsync(ct).ConfigureAwait(false);
+        return JsonSerializer.Serialize(schema.Select(c => new
+        {
+            name = c.DisplayName,
+            internalName = c.InternalName,
+            type = c.Type,
+            required = c.Required,
+            description = c.Description
+        }));
+    }
+
+    /// <summary>
+    /// Creates a new item in the SharePoint list using the provided field values.
+    /// <paramref name="fields"/> keys must be the internal column names.
+    /// Returns the created item's ID on success.
+    /// </summary>
+    public async Task<string> CreateListItemAsync(
+        Dictionary<string, JsonElement> fields, CancellationToken ct = default)
+    {
+        var token = await GetAccessTokenAsync(ct).ConfigureAwait(false);
+        var siteId = await ResolveSiteIdAsync(token, ct).ConfigureAwait(false);
+        var listId = await ResolveListIdAsync(token, siteId, ct).ConfigureAwait(false);
+
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items";
+
+        // Graph expects { "fields": { "FieldName": value, ... } }
+        var body = JsonSerializer.Serialize(new { fields });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+
+        var createdId = doc.RootElement.TryGetProperty("id", out var idProp)
+            ? idProp.GetString()
+            : "unknown";
+
+        return JsonSerializer.Serialize(new { success = true, id = createdId });
+    }
+
+    /// <summary>Derives a human-readable type label from the Graph column definition.</summary>
+    private static string ResolveColumnType(JsonElement col)
+    {
+        string[] knownTypes =
+        [
+            "text", "number", "boolean", "choice", "dateTime", "lookup",
+            "person", "hyperlink", "currency", "calculated", "geolocation",
+            "term", "thumbnail", "contentApprovalStatus"
+        ];
+
+        foreach (var t in knownTypes)
+        {
+            if (col.TryGetProperty(t, out _))
+                return t;
+        }
+        return "unknown";
     }
 
     /// <summary>
@@ -37,12 +169,7 @@ internal sealed class SharePointService
     public async Task<string> GetListItemsAsync(CancellationToken ct = default)
     {
         var token = await GetAccessTokenAsync(ct).ConfigureAwait(false);
-
-        // Resolve the path-based SiteId to its canonical GUID form once.
-        // Graph does not support chaining path-based site resolution with /lists/ inline.
         var siteId = await ResolveSiteIdAsync(token, ct).ConfigureAwait(false);
-
-        // Resolve the list display name to its GUID — display names in URL paths are unreliable.
         var listId = await ResolveListIdAsync(token, siteId, ct).ConfigureAwait(false);
 
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}" +
@@ -57,11 +184,9 @@ internal sealed class SharePointService
 
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
-        // Extract the "value" array and return it as a compact JSON string
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.TryGetProperty("value", out var valueElement))
         {
-            // Build a simplified list of field objects to keep the response concise
             var items = new List<Dictionary<string, object?>>();
             foreach (var item in valueElement.EnumerateArray())
             {
@@ -70,7 +195,6 @@ internal sealed class SharePointService
                     var dict = new Dictionary<string, object?>();
                     foreach (var field in fields.EnumerateObject())
                     {
-                        // Skip internal SharePoint metadata fields
                         if (field.Name.StartsWith('@') || field.Name.StartsWith("_"))
                             continue;
 
@@ -190,3 +314,5 @@ internal sealed class SharePointService
         return _cachedToken;
     }
 }
+
+

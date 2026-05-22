@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
 using Azure.AI.VoiceLive;
@@ -84,7 +84,7 @@ class AudioProcessor : IDisposable
 
         _waveIn.StartRecording();
         _sendTask = Task.Run(ProcessSendQueueAsync);
-        Console.WriteLine("🎤 Audio capture started");
+        Console.WriteLine("?? Audio capture started");
     }
 
     public void StartPlayback()
@@ -227,7 +227,7 @@ class BasicVoiceAssistant : IDisposable
 
             Console.WriteLine();
             Console.WriteLine(new string('=', 65));
-            Console.WriteLine("🎤 VOICE ASSISTANT READY");
+            Console.WriteLine("?? VOICE ASSISTANT READY");
             Console.WriteLine("Start speaking to begin conversation");
             Console.WriteLine("Press Ctrl+C to exit");
             Console.WriteLine(new string('=', 65));
@@ -294,6 +294,16 @@ class BasicVoiceAssistant : IDisposable
             })
         };
         options.Tools.Add(getUseCasesTool);
+
+        // Crawl the list schema at startup and build the create_list_item tool dynamically
+        // so the model knows exactly which fields exist, their types, and which are required.
+        if (_sharePointService is not null)
+        {
+            var schema = await _sharePointService.GetSchemaAsync(cancellationToken).ConfigureAwait(false);
+            var createTool = BuildCreateItemTool(schema);
+            options.Tools.Add(createTool);
+        }
+
         options.ToolChoice = ToolChoiceLiteral.Auto;
 
         await _session!.ConfigureSessionAsync(options, cancellationToken).ConfigureAwait(false);
@@ -335,18 +345,18 @@ class BasicVoiceAssistant : IDisposable
 
             case SessionUpdateConversationItemInputAudioTranscriptionCompleted transcription:
                 var userText = transcription.Transcript;
-                Console.WriteLine($"👤 You said:\t{userText}");
+                Console.WriteLine($"?? You said:\t{userText}");
                 WriteLog($"User Input:\t{userText}");
                 break;
 
             case SessionUpdateResponseAudioTranscriptDone audioTranscriptDone:
                 var agentText = audioTranscriptDone.Transcript;
-                Console.WriteLine($"🤖 Agent responded:\t{agentText}");
+                Console.WriteLine($"?? Agent responded:\t{agentText}");
                 WriteLog($"Agent Audio Response:\t{agentText}");
                 break;
 
             case SessionUpdateInputAudioBufferSpeechStarted:
-                Console.WriteLine("🎤 Listening...");
+                Console.WriteLine("?? Listening...");
                 _audioProcessor?.SkipPendingAudio();
 
                 // Cancel in-progress response for barge-in
@@ -364,7 +374,7 @@ class BasicVoiceAssistant : IDisposable
                 break;
 
             case SessionUpdateInputAudioBufferSpeechStopped:
-                Console.WriteLine("🤔 Processing...");
+                Console.WriteLine("?? Processing...");
                 break;
 
             case SessionUpdateResponseCreated:
@@ -380,7 +390,7 @@ class BasicVoiceAssistant : IDisposable
                 break;
 
             case SessionUpdateResponseAudioDone:
-                Console.WriteLine("🎤 Ready for next input...");
+                Console.WriteLine("?? Ready for next input...");
                 break;
 
             case SessionUpdateResponseDone:
@@ -400,7 +410,7 @@ class BasicVoiceAssistant : IDisposable
                     ["call_id"] = functionCallDone.CallId,
                     ["arguments"] = functionCallDone.Arguments
                 };
-                Console.WriteLine($"⚙️  Function call queued: {functionCallDone.Name}");
+                Console.WriteLine($"??  Function call queued: {functionCallDone.Name}");
                 break;
 
             case SessionUpdateError errorEvent:
@@ -418,13 +428,87 @@ class BasicVoiceAssistant : IDisposable
     }
     // </handle_events>
 
+    // <build_tool>
+    /// <summary>
+    /// Builds the <c>create_list_item</c> function definition dynamically from the live
+    /// SharePoint list schema so the model receives accurate field names, types, descriptions,
+    /// and knows which arguments are required.
+    /// </summary>
+    private static VoiceLiveFunctionDefinition BuildCreateItemTool(IReadOnlyList<ListColumn> schema)
+    {
+        var properties = new Dictionary<string, object>();
+        foreach (var col in schema)
+        {
+            var jsonType = col.Type switch
+            {
+                "number" or "currency" => "number",
+                "boolean" => "boolean",
+                _ => "string"
+            };
+
+            var desc = string.IsNullOrWhiteSpace(col.Description)
+                ? $"{col.DisplayName} ({col.Type})"
+                : $"{col.DisplayName} ({col.Type}): {col.Description}";
+
+            properties[col.InternalName] = new Dictionary<string, object>
+            {
+                ["type"] = jsonType,
+                ["description"] = desc
+            };
+        }
+
+        var requiredFields = schema
+            .Where(c => c.Required)
+            .Select(c => c.InternalName)
+            .ToArray();
+
+        var columnSummary = string.Join(", ",
+            schema.Select(c => c.Required ? $"{c.DisplayName}*" : c.DisplayName));
+
+        return new VoiceLiveFunctionDefinition("create_list_item")
+        {
+            Description =
+                "Creates a new item in the SharePoint use-case list. " +
+                "Before calling this function, ask the user for every required field (marked with *). " +
+                "Collect optional fields if the user provides them. " +
+                $"Fields (* = required): {columnSummary}",
+            Parameters = BinaryData.FromObjectAsJson(new
+            {
+                type = "object",
+                properties,
+                required = requiredFields
+            })
+        };
+    }
+    // </build_tool>
+
+    // <create_item_helper>
+    /// <summary>
+    /// Parses the raw JSON arguments string from the function call and forwards the
+    /// field values to <see cref="SharePointService.CreateListItemAsync"/>.
+    /// </summary>
+    private async Task<string> CreateListItemFromCallAsync(
+        Dictionary<string, object> call, CancellationToken cancellationToken)
+    {
+        var arguments = (string)call["arguments"];
+        using var doc = JsonDocument.Parse(arguments);
+
+        var fields = new Dictionary<string, JsonElement>();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+            fields[prop.Name] = prop.Value.Clone();
+
+        return await _sharePointService!.CreateListItemAsync(fields, cancellationToken)
+            .ConfigureAwait(false);
+    }
+    // </create_item_helper>
+
     // <function_calling>
     private async Task ExecuteFunctionCallAsync(Dictionary<string, object> call, CancellationToken cancellationToken)
     {
         var name = (string)call["name"];
         var callId = (string)call["call_id"];
 
-        Console.WriteLine($"⚙️  Executing function: {name}");
+        Console.WriteLine($"??  Executing function: {name}");
         string resultJson;
 
         try
@@ -434,6 +518,10 @@ class BasicVoiceAssistant : IDisposable
                 "get_use_cases" when _sharePointService is not null =>
                     await _sharePointService.GetListItemsAsync(cancellationToken).ConfigureAwait(false),
                 "get_use_cases" =>
+                    JsonSerializer.Serialize(new { error = "SharePoint service is not configured." }),
+                "create_list_item" when _sharePointService is not null =>
+                    await CreateListItemFromCallAsync(call, cancellationToken).ConfigureAwait(false),
+                "create_list_item" =>
                     JsonSerializer.Serialize(new { error = "SharePoint service is not configured." }),
                 _ =>
                     JsonSerializer.Serialize(new { error = $"Unknown function: {name}" })
@@ -449,7 +537,7 @@ class BasicVoiceAssistant : IDisposable
             .ConfigureAwait(false);
 
         await _session!.StartResponseAsync(cancellationToken).ConfigureAwait(false);
-        Console.WriteLine($"✅ Function {name} result sent");
+        Console.WriteLine($"? Function {name} result sent");
     }
     // </function_calling>
 
@@ -542,7 +630,7 @@ class Program
         // Verify audio devices
         CheckAudioDevices();
 
-        Console.WriteLine("🎙️ Basic Foundry Voice Agent with Azure VoiceLive SDK (Agent Mode)");
+        Console.WriteLine("??? Basic Foundry Voice Agent with Azure VoiceLive SDK (Agent Mode)");
         Console.WriteLine(new string('=', 65));
 
         SharePointService? spService = sharePointOpts.IsConfigured
@@ -564,7 +652,7 @@ class Program
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine("\n👋 Voice assistant shut down. Goodbye!");
+            Console.WriteLine("\n?? Voice assistant shut down. Goodbye!");
         }
         catch (Exception ex)
         {
@@ -577,7 +665,7 @@ class Program
     {
         if (WaveInEvent.DeviceCount == 0)
         {
-            Console.Error.WriteLine("❌ No audio input devices found. Please check your microphone.");
+            Console.Error.WriteLine("? No audio input devices found. Please check your microphone.");
             Environment.Exit(1);
         }
         try
@@ -586,7 +674,7 @@ class Program
         }
         catch
         {
-            Console.Error.WriteLine("❌ No audio output devices found. Please check your speakers.");
+            Console.Error.WriteLine("? No audio output devices found. Please check your speakers.");
             Environment.Exit(1);
         }
     }
