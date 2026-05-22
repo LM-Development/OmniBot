@@ -6,7 +6,11 @@
         "AZURE_VOICELIVE_AGENT_ID": "Live-Voice",
         //"AZURE_VOICELIVE_AGENT_VERSION": "7",
         "AZURE_VOICELIVE_ENDPOINT": "https://teamsavatarbot-resource.services.ai.azure.com/",
-        "AZURE_VOICELIVE_PROJECT_NAME": "teamsavatarbot"
+        "AZURE_VOICELIVE_PROJECT_NAME": "teamsavatarbot",
+        "SharePointFunctions__ClientId": "",
+        "SharePointFunctions__ClientSecret": "",
+        "SharePointFunctions__SiteId": "",
+        "SharePointFunctions__ListId": ""
       }
     }
   }
