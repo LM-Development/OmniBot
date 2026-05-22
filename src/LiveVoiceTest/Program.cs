@@ -3,10 +3,10 @@
 
 using Azure.AI.VoiceLive;
 using Azure.Identity;
-using Microsoft.VisualBasic;
+using LiveVoiceTest;
+using Microsoft.Extensions.Configuration;
 using NAudio.Wave;
 using System.Collections.Concurrent;
-using System.Text;
 using System.Text.Json;
 
 // <all>
@@ -178,42 +178,28 @@ class AudioProcessor : IDisposable
 class BasicVoiceAssistant : IDisposable
 {
     private readonly string _endpoint;
-    private readonly AgentSessionConfig _agentConfig;
+    private readonly string _model;
+    private readonly string _instructions;
+    private readonly string _voice;
+    private readonly SharePointService? _sharePointService;
     private VoiceLiveSession? _session;
     private AudioProcessor? _audioProcessor;
     private bool _greetingSent;
     private bool _activeResponse;
     private bool _responseApiDone;
+    private Dictionary<string, object>? _pendingFunctionCall;
 
     // Conversation log
     private static readonly string LogFilename = $"conversation_{DateTime.Now:yyyyMMdd_HHmmss}.log";
 
     // <agent_config>
-    public BasicVoiceAssistant(string endpoint, string agentName, string projectName,
-        string? agentVersion = null, string? conversationId = null,
-        string? foundryResourceOverride = null, string? authIdentityClientId = null)
+    public BasicVoiceAssistant(VoiceLiveOptions opts, SharePointService? sharePointService = null)
     {
-        _endpoint = endpoint;
-
-        // Build the agent session configuration
-        var config = new AgentSessionConfig(agentName, projectName);
-        if (!string.IsNullOrEmpty(agentVersion))
-        {
-            config.AgentVersion = agentVersion;
-        }
-        if (!string.IsNullOrEmpty(conversationId))
-        {
-            config.ConversationId = conversationId;
-        }
-        if (!string.IsNullOrEmpty(foundryResourceOverride))
-        {
-            config.FoundryResourceOverride = foundryResourceOverride;
-            if (!string.IsNullOrEmpty(authIdentityClientId))
-            {
-                config.AuthenticationIdentityClientId = authIdentityClientId;
-            }
-        }
-        _agentConfig = config;
+        _endpoint = opts.Endpoint;
+        _model = opts.Model;
+        _instructions = opts.Instructions;
+        _voice = opts.Voice;
+        _sharePointService = sharePointService;
     }
     // </agent_config>
 
@@ -227,9 +213,8 @@ class BasicVoiceAssistant : IDisposable
             new Uri(_endpoint),
             new DefaultAzureCredential());
 
-        // Connect using SessionTarget.FromAgent(AgentSessionConfig)
-        _session = await client.StartSessionAsync(
-            SessionTarget.FromAgent(_agentConfig), cancellationToken).ConfigureAwait(false);
+        // Connect using the model name so tools and instructions can be set at runtime
+        _session = await client.StartSessionAsync(_model, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -269,7 +254,6 @@ class BasicVoiceAssistant : IDisposable
     {
         Console.WriteLine("Setting up voice conversation session...");
 
-        // Create session configuration with interim response to bridge latency gaps
         var interimConfig = new LlmInterimResponseConfig
         {
             Instructions = "Create friendly interim responses indicating wait time due to "
@@ -282,15 +266,37 @@ class BasicVoiceAssistant : IDisposable
 
         var options = new VoiceLiveSessionOptions
         {
+            Model = _model,
+            Instructions = _instructions,
             InputAudioFormat = InputAudioFormat.Pcm16,
             OutputAudioFormat = OutputAudioFormat.Pcm16,
             //InterimResponse = BinaryData.FromObjectAsJson(interimConfig),
-            Voice = new AzureStandardVoice("de-AT-JonasNeural")
+            Voice = new AzureStandardVoice(_voice),
+            InputAudioTranscription = new AudioInputTranscriptionOptions(
+                AudioInputTranscriptionOptionsModel.AzureSpeech),
+           TurnDetection = new AzureSemanticVadTurnDetection()
+           {
+               RemoveFillerWords = true
+           }
         };
 
-        // Send session configuration
-        await _session!.ConfigureSessionAsync(options, cancellationToken).ConfigureAwait(false);
+        var getUseCasesTool = new VoiceLiveFunctionDefinition("get_use_cases")
+        {
+            Description =
+                "Retrieves all use cases from the SharePoint list. " +
+                "Call this whenever the user asks about use cases, requirements, " +
+                "scenarios, or the contents of the use-case list.",
+            Parameters = BinaryData.FromObjectAsJson(new
+            {
+                type = "object",
+                properties = new { },
+                required = Array.Empty<string>()
+            })
+        };
+        options.Tools.Add(getUseCasesTool);
+        options.ToolChoice = ToolChoiceLiteral.Auto;
 
+        await _session!.ConfigureSessionAsync(options, cancellationToken).ConfigureAwait(false);
         Console.WriteLine("Session configuration sent");
     }
     // </setup_session>
@@ -380,6 +386,21 @@ class BasicVoiceAssistant : IDisposable
             case SessionUpdateResponseDone:
                 _activeResponse = false;
                 _responseApiDone = true;
+                if (_pendingFunctionCall is not null)
+                {
+                    await ExecuteFunctionCallAsync(_pendingFunctionCall, cancellationToken).ConfigureAwait(false);
+                    _pendingFunctionCall = null;
+                }
+                break;
+
+            case SessionUpdateResponseFunctionCallArgumentsDone functionCallDone:
+                _pendingFunctionCall = new Dictionary<string, object>
+                {
+                    ["name"] = functionCallDone.Name,
+                    ["call_id"] = functionCallDone.CallId,
+                    ["arguments"] = functionCallDone.Arguments
+                };
+                Console.WriteLine($"⚙️  Function call queued: {functionCallDone.Name}");
                 break;
 
             case SessionUpdateError errorEvent:
@@ -396,6 +417,41 @@ class BasicVoiceAssistant : IDisposable
         }
     }
     // </handle_events>
+
+    // <function_calling>
+    private async Task ExecuteFunctionCallAsync(Dictionary<string, object> call, CancellationToken cancellationToken)
+    {
+        var name = (string)call["name"];
+        var callId = (string)call["call_id"];
+
+        Console.WriteLine($"⚙️  Executing function: {name}");
+        string resultJson;
+
+        try
+        {
+            resultJson = name switch
+            {
+                "get_use_cases" when _sharePointService is not null =>
+                    await _sharePointService.GetListItemsAsync(cancellationToken).ConfigureAwait(false),
+                "get_use_cases" =>
+                    JsonSerializer.Serialize(new { error = "SharePoint service is not configured." }),
+                _ =>
+                    JsonSerializer.Serialize(new { error = $"Unknown function: {name}" })
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Function {name} failed: {ex.Message}");
+            resultJson = JsonSerializer.Serialize(new { error = ex.Message });
+        }
+
+        await _session!.AddItemAsync(new FunctionCallOutputItem(callId, resultJson), cancellationToken)
+            .ConfigureAwait(false);
+
+        await _session!.StartResponseAsync(cancellationToken).ConfigureAwait(false);
+        Console.WriteLine($"✅ Function {name} result sent");
+    }
+    // </function_calling>
 
     // <proactive_greeting>
     private async Task SendProactiveGreetingAsync(CancellationToken cancellationToken)
@@ -458,26 +514,28 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        var endpoint = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_ENDPOINT");
-        var agentName = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_AGENT_ID");
-        var projectName = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_PROJECT_NAME");
-        var agentVersion = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_AGENT_VERSION");
-        var conversationId = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_CONVERSATION_ID");
-        var foundryResourceOverride = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_FOUNDRY_RESOURCE_OVERRIDE");
-        var authIdentityClientId = Environment.GetEnvironmentVariable("AZURE_VOICELIVE_AUTH_IDENTITY_CLIENT_ID");
+        // Build configuration: environment variables override, user secrets for secrets
+        IConfiguration config = new ConfigurationBuilder()
+            .AddEnvironmentVariables()
+            .AddUserSecrets<Program>()
+            .Build();
 
-        Console.WriteLine("Environment variables:");
-        Console.WriteLine($"AZURE_VOICELIVE_ENDPOINT: {endpoint}");
-        Console.WriteLine($"AZURE_VOICELIVE_AGENT_ID: {agentName}");
-        Console.WriteLine($"AZURE_VOICELIVE_PROJECT_NAME: {projectName}");
-        Console.WriteLine($"AZURE_VOICELIVE_AGENT_VERSION: {agentVersion}");
-        Console.WriteLine($"AZURE_VOICELIVE_CONVERSATION_ID: {conversationId}");
-        Console.WriteLine($"AZURE_VOICELIVE_FOUNDRY_RESOURCE_OVERRIDE: {foundryResourceOverride}");
+        var voiceLiveOpts = new VoiceLiveOptions();
+        config.GetSection(VoiceLiveOptions.Section).Bind(voiceLiveOpts);
 
-        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName)
-            || string.IsNullOrEmpty(projectName))
+        var sharePointOpts = new SharePointOptions();
+        config.GetSection(SharePointOptions.Section).Bind(sharePointOpts);
+
+        Console.WriteLine("Configuration:");
+        Console.WriteLine($"  VoiceLive Endpoint:   {voiceLiveOpts.Endpoint}");
+        Console.WriteLine($"  VoiceLive Model:      {voiceLiveOpts.Model}");
+        Console.WriteLine($"  VoiceLive Voice:      {voiceLiveOpts.Voice}");
+        Console.WriteLine($"  SharePoint configured:{sharePointOpts.IsConfigured}");
+
+        if (!voiceLiveOpts.IsConfigured)
         {
-            Console.Error.WriteLine("Set AZURE_VOICELIVE_ENDPOINT, AZURE_VOICELIVE_AGENT_ID, and AZURE_VOICELIVE_PROJECT_NAME environment variables.");
+            Console.Error.WriteLine(
+                "Set VoiceLive__Endpoint via environment variables or appsettings.");
             return;
         }
 
@@ -487,12 +545,12 @@ class Program
         Console.WriteLine("🎙️ Basic Foundry Voice Agent with Azure VoiceLive SDK (Agent Mode)");
         Console.WriteLine(new string('=', 65));
 
-        using var assistant = new BasicVoiceAssistant(
-            endpoint, agentName, projectName,
-            agentVersion, conversationId,
-            foundryResourceOverride, authIdentityClientId);
+        SharePointService? spService = sharePointOpts.IsConfigured
+            ? new SharePointService(sharePointOpts)
+            : null;
 
-        // Handle graceful shutdown
+        using var assistant = new BasicVoiceAssistant(voiceLiveOpts, spService);
+
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (sender, e) =>
         {
@@ -522,8 +580,6 @@ class Program
             Console.Error.WriteLine("❌ No audio input devices found. Please check your microphone.");
             Environment.Exit(1);
         }
-        // WaveOutEvent doesn't expose a static DeviceCount; verify by
-        // attempting to create a playback instance.
         try
         {
             using var testOut = new WaveOutEvent();
