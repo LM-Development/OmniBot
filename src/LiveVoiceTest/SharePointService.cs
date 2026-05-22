@@ -19,6 +19,12 @@ internal sealed class SharePointService
     private string? _cachedToken;
     private DateTimeOffset _tokenExpiry = DateTimeOffset.MinValue;
 
+    // Resolved site GUID cache — path-based IDs cannot be chained with /lists/
+    private string? _resolvedSiteId;
+
+    // Resolved list GUID cache — display names in URL paths are unreliable
+    private string? _resolvedListId;
+
     public SharePointService(SharePointOptions options, HttpClient? http = null)
     {
         _options = options;
@@ -32,9 +38,15 @@ internal sealed class SharePointService
     {
         var token = await GetAccessTokenAsync(ct).ConfigureAwait(false);
 
-        // Graph endpoint: GET /sites/{siteId}/lists/{listId}/items?expand=fields
-        var url = $"https://graph.microsoft.com/v1.0/sites/{_options.SiteId}" +
-                  $"/lists/{_options.ListId}/items?expand=fields&$top=200";
+        // Resolve the path-based SiteId to its canonical GUID form once.
+        // Graph does not support chaining path-based site resolution with /lists/ inline.
+        var siteId = await ResolveSiteIdAsync(token, ct).ConfigureAwait(false);
+
+        // Resolve the list display name to its GUID — display names in URL paths are unreliable.
+        var listId = await ResolveListIdAsync(token, siteId, ct).ConfigureAwait(false);
+
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}" +
+                  $"/lists/{listId}/items?expand=fields&$top=200";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -78,6 +90,75 @@ internal sealed class SharePointService
         }
 
         return "[]";
+    }
+
+    /// <summary>
+    /// Resolves a path-based SiteId (e.g. "hostname:/sites/path:") to its canonical
+    /// GUID-based id (e.g. "hostname,siteGuid,webGuid") via GET /sites/{siteId}.
+    /// The result is cached for the lifetime of this instance.
+    /// </summary>
+    private async Task<string> ResolveSiteIdAsync(string token, CancellationToken ct)
+    {
+        if (_resolvedSiteId is not null)
+            return _resolvedSiteId;
+
+        var url = $"https://graph.microsoft.com/v1.0/sites/{_options.SiteId}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+
+        _resolvedSiteId = doc.RootElement.GetProperty("id").GetString()!;
+        Console.WriteLine($"Resolved SharePoint site ID: {_resolvedSiteId}");
+        return _resolvedSiteId;
+    }
+
+    /// <summary>
+    /// Resolves the configured list display name to its canonical GUID by fetching
+    /// GET /sites/{siteId}/lists and matching on displayName (case-insensitive).
+    /// The result is cached for the lifetime of this instance.
+    /// </summary>
+    private async Task<string> ResolveListIdAsync(string token, string siteId, CancellationToken ct)
+    {
+        if (_resolvedListId is not null)
+            return _resolvedListId;
+
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists?$select=id,displayName,name";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(json);
+
+        foreach (var list in doc.RootElement.GetProperty("value").EnumerateArray())
+        {
+            var displayName = list.TryGetProperty("displayName", out var dn) ? dn.GetString() : null;
+            var name = list.TryGetProperty("name", out var n) ? n.GetString() : null;
+
+            if (string.Equals(displayName, _options.ListId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, _options.ListId, StringComparison.OrdinalIgnoreCase))
+            {
+                _resolvedListId = list.GetProperty("id").GetString()!;
+                Console.WriteLine($"Resolved SharePoint list '{_options.ListId}' to ID: {_resolvedListId}");
+                return _resolvedListId;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"SharePoint list '{_options.ListId}' was not found in site '{siteId}'. " +
+            $"Available lists: {string.Join(", ", doc.RootElement.GetProperty("value").EnumerateArray()
+                .Select(l => l.TryGetProperty("displayName", out var d) ? d.GetString() : "?"))}");
     }
 
     private async Task<string> GetAccessTokenAsync(CancellationToken ct)
