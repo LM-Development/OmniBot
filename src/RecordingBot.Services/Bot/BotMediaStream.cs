@@ -54,8 +54,12 @@ namespace RecordingBot.Services.Bot
             var azureSettings = (AzureSettings)settings;
             if (azureSettings.VoiceLiveSettings?.IsConfigured == true)
             {
+                SharePointService sharePointService = null;
+                if (azureSettings.SharePointSettings?.IsConfigured == true)
+                    sharePointService = new SharePointService(azureSettings.SharePointSettings);
+
                 _mediaStream = new VoiceLiveMediaStream(
-                    azureSettings.VoiceLiveSettings, _audioSocket, logger);
+                    azureSettings.VoiceLiveSettings, _audioSocket, logger, sharePointService);
             }
             else
             {

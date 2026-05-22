@@ -10,20 +10,11 @@ namespace RecordingBot.Services.ServiceSetup
         /// <summary>Voice Live service endpoint URI.</summary>
         public string Endpoint { get; set; }
 
-        /// <summary>Foundry agent name / ID.</summary>
-        public string AgentId { get; set; }
-
-        /// <summary>Foundry project name.</summary>
-        public string ProjectName { get; set; }
-
-        /// <summary>Optional specific agent version.</summary>
-        public string AgentVersion { get; set; }
+        /// <summary>Realtime model name (e.g. "gpt-4.1-mini").</summary>
+        public string Model { get; set; }
 
         /// <summary>Optional TTS voice name (e.g. "en-US-Ava:DragonHDLatestNeural").</summary>
         public string Voice { get; set; }
-
-        /// <summary>Optional cross-resource Foundry endpoint override.</summary>
-        public string FoundryResourceOverride { get; set; }
 
         /// <summary>Optional managed identity client ID for cross-resource authentication.</summary>
         public string AuthIdentityClientId { get; set; }
@@ -34,10 +25,12 @@ namespace RecordingBot.Services.ServiceSetup
         /// <summary>Greeting instruction sent to the agent on session start.</summary>
         public string GreetingText { get; set; } = "Say something to welcome the user.";
 
+        /// <summary>System instructions for the assistant.</summary>
+        public string Instructions { get; set; }
+
         /// <summary>Returns true when the minimum required settings are configured.</summary>
         public bool IsConfigured =>
             !string.IsNullOrWhiteSpace(Endpoint) &&
-            !string.IsNullOrWhiteSpace(AgentId) &&
-            !string.IsNullOrWhiteSpace(ProjectName);
+            !string.IsNullOrWhiteSpace(Model);
     }
 }

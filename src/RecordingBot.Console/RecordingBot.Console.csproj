@@ -8,6 +8,7 @@
         <LangVersion>latest</LangVersion>
         <Nullable>disable</Nullable>
 		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<UserSecretsId>f3a416d0-9447-4b91-8b45-dccb38896c64</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>

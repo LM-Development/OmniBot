@@ -10,7 +10,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -43,11 +45,14 @@ namespace RecordingBot.Services.Media
         private VoiceLiveSession _session;
         private readonly CancellationTokenSource _cts = new();
 
+        private readonly SharePointService _sharePointService;
+
         private bool _sessionStarted;
         private bool _greetingSent;
         private bool _activeResponse;
         private bool _responseApiDone;
         private long _playbackTimestamp;
+        private Dictionary<string, object> _pendingFunctionCall;
 
         // Audio queues
         private readonly BlockingCollection<byte[]> _sendQueue =
@@ -65,11 +70,13 @@ namespace RecordingBot.Services.Media
         public VoiceLiveMediaStream(
             VoiceLiveSettings settings,
             IAudioSocket audioSocket,
-            IGraphLogger logger)
+            IGraphLogger logger,
+            SharePointService sharePointService = null)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _audioSocket = audioSocket ?? throw new ArgumentNullException(nameof(audioSocket));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _sharePointService = sharePointService;
         }
 
         /// <summary>
@@ -131,14 +138,8 @@ namespace RecordingBot.Services.Media
                     new Uri(_settings.Endpoint),
                     new DefaultAzureCredential(credOptions));
 
-                var agentConfig = new AgentSessionConfig(_settings.AgentId, _settings.ProjectName);
-                if (!string.IsNullOrEmpty(_settings.AgentVersion))
-                    agentConfig.AgentVersion = _settings.AgentVersion;
-                if (!string.IsNullOrEmpty(_settings.FoundryResourceOverride))
-                    agentConfig.FoundryResourceOverride = _settings.FoundryResourceOverride;
-
                 _session = await _client
-                    .StartSessionAsync(SessionTarget.FromAgent(agentConfig), _cts.Token)
+                    .StartSessionAsync(_settings.Model, _cts.Token)
                     .ConfigureAwait(false);
 
                 var options = new VoiceLiveSessionOptions
@@ -148,6 +149,31 @@ namespace RecordingBot.Services.Media
                 };
                 if (!string.IsNullOrEmpty(_settings.Voice))
                     options.Voice = new AzureStandardVoice(_settings.Voice);
+                if (!string.IsNullOrEmpty(_settings.Instructions))
+                    options.Instructions = _settings.Instructions;
+
+                // Register SharePoint tools when a service is configured
+                if (_sharePointService is not null)
+                {
+                    var getUseCasesTool = new VoiceLiveFunctionDefinition("get_use_cases")
+                    {
+                        Description =
+                            "Retrieves all use cases from the SharePoint list. " +
+                            "Call this whenever the user asks about use cases, requirements, " +
+                            "scenarios, or the contents of the use-case list.",
+                        Parameters = BinaryData.FromObjectAsJson(new
+                        {
+                            type = "object",
+                            properties = new { },
+                            required = Array.Empty<string>()
+                        })
+                    };
+                    options.Tools.Add(getUseCasesTool);
+
+                    var schema = await _sharePointService.GetSchemaAsync(_cts.Token).ConfigureAwait(false);
+                    options.Tools.Add(BuildCreateItemTool(schema));
+                    options.ToolChoice = ToolChoiceLiteral.Auto;
+                }
 
                 await _session.ConfigureSessionAsync(options, _cts.Token).ConfigureAwait(false);
 
@@ -244,9 +270,24 @@ namespace RecordingBot.Services.Media
                     _responseApiDone = false;
                     break;
 
+                case SessionUpdateResponseFunctionCallArgumentsDone functionCallDone:
+                    _pendingFunctionCall = new Dictionary<string, object>
+                    {
+                        ["name"] = functionCallDone.Name,
+                        ["call_id"] = functionCallDone.CallId,
+                        ["arguments"] = functionCallDone.Arguments
+                    };
+                    _logger.Info($"VoiceLive function call queued: {functionCallDone.Name}");
+                    break;
+
                 case SessionUpdateResponseDone:
                     _activeResponse = false;
                     _responseApiDone = true;
+                    if (_pendingFunctionCall is not null)
+                    {
+                        await ExecuteFunctionCallAsync(_pendingFunctionCall).ConfigureAwait(false);
+                        _pendingFunctionCall = null;
+                    }
                     break;
 
                 case SessionUpdateResponseAudioTranscriptDone transcriptDone:
@@ -334,6 +375,104 @@ namespace RecordingBot.Services.Media
             {
                 handle.Free();
             }
+        }
+
+        // ------------------------------------------------------------------ SharePoint function calling
+
+        private static VoiceLiveFunctionDefinition BuildCreateItemTool(IReadOnlyList<ListColumn> schema)
+        {
+            var properties = new Dictionary<string, object>();
+            foreach (var col in schema)
+            {
+                var jsonType = col.Type switch
+                {
+                    "number" or "currency" => "number",
+                    "boolean" => "boolean",
+                    _ => "string"
+                };
+
+                var desc = string.IsNullOrWhiteSpace(col.Description)
+                    ? $"{col.DisplayName} ({col.Type})"
+                    : $"{col.DisplayName} ({col.Type}): {col.Description}";
+
+                properties[col.InternalName] = new Dictionary<string, object>
+                {
+                    ["type"] = jsonType,
+                    ["description"] = desc
+                };
+            }
+
+            var requiredFields = schema
+                .Where(c => c.Required)
+                .Select(c => c.InternalName)
+                .ToArray();
+
+            var columnSummary = string.Join(", ",
+                schema.Select(c => c.Required ? $"{c.DisplayName}*" : c.DisplayName));
+
+            return new VoiceLiveFunctionDefinition("create_list_item")
+            {
+                Description =
+                    "Creates a new item in the SharePoint use-case list. " +
+                    "Before calling this function, ask the user for every required field (marked with *). " +
+                    "Collect optional fields if the user provides them. " +
+                    $"Fields (* = required): {columnSummary}",
+                Parameters = BinaryData.FromObjectAsJson(new
+                {
+                    type = "object",
+                    properties,
+                    required = requiredFields
+                })
+            };
+        }
+
+        private async Task<string> CreateListItemFromCallAsync(Dictionary<string, object> call)
+        {
+            var arguments = (string)call["arguments"];
+            using var doc = JsonDocument.Parse(arguments);
+
+            var fields = new Dictionary<string, JsonElement>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+                fields[prop.Name] = prop.Value.Clone();
+
+            return await _sharePointService.CreateListItemAsync(fields, _cts.Token).ConfigureAwait(false);
+        }
+
+        private async Task ExecuteFunctionCallAsync(Dictionary<string, object> call)
+        {
+            var name = (string)call["name"];
+            var callId = (string)call["call_id"];
+
+            _logger.Info($"VoiceLive executing function: {name}");
+            string resultJson;
+
+            try
+            {
+                resultJson = name switch
+                {
+                    "get_use_cases" when _sharePointService is not null =>
+                        await _sharePointService.GetListItemsAsync(_cts.Token).ConfigureAwait(false),
+                    "get_use_cases" =>
+                        JsonSerializer.Serialize(new { error = "SharePoint service is not configured." }),
+                    "create_list_item" when _sharePointService is not null =>
+                        await CreateListItemFromCallAsync(call).ConfigureAwait(false),
+                    "create_list_item" =>
+                        JsonSerializer.Serialize(new { error = "SharePoint service is not configured." }),
+                    _ =>
+                        JsonSerializer.Serialize(new { error = $"Unknown function: {name}" })
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, $"VoiceLive function {name} failed.");
+                resultJson = JsonSerializer.Serialize(new { error = ex.Message });
+            }
+
+            await _session.AddItemAsync(new FunctionCallOutputItem(callId, resultJson), _cts.Token)
+                .ConfigureAwait(false);
+
+            await _session.StartResponseAsync(_cts.Token).ConfigureAwait(false);
+            _logger.Info($"VoiceLive function {name} result sent.");
         }
 
         // ------------------------------------------------------------------ proactive greeting
