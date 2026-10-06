@@ -405,3 +405,4 @@ FodyWeavers.xsd
 *.env
 deploy/teams-recording-bot/charts/*
 src/RecordingBot.Console/cache/*
+.vscode/settings.json
