@@ -4,45 +4,83 @@ on:
   schedule:
     - cron: '0 0 * * 1'  # Mondays at 00:00 UTC
   workflow_dispatch:
+    inputs:
+      image-tag:
+        description: 'Image tag to scan (defaults to the most recently pushed tag)'
+        required: false
+        default: ''
+        type: string
+      debug:
+        description: 'Enable Trivy debug logging'
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write
+
+env:
+  # Fall back to mirrors when ghcr.io rate limits the vulnerability database download
+  TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2
+  TRIVY_JAVA_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-java-db:1,public.ecr.aws/aquasecurity/trivy-java-db:1,ghcr.io/aquasecurity/trivy-java-db:1
+  TRIVY_DEBUG: ${{ inputs.debug || false }}
+  TRIVY_USERNAME: ${{ github.actor }}
+  TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   scan:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Trivy
+      - name: Resolve image to scan
+        id: image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ vars.CR_NAMESPACE_REPOSITORY }}
+          REQUESTED_TAG: ${{ inputs.image-tag }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-      
-      - name: Run Trivy Scan
-        run: |
-          trivy image --format sarif --output trivy-results.sarif ghcr.io/lm-development/aks-sample/aks-sample:latest
-      
-      - name: Check Trivy Scan Result
-        if: always()
-        run: |
-          if grep -q "Vulnerability" trivy-results.sarif; then
-            echo "Vulnerabilities found"
-          else
-            echo "No vulnerabilities found"
+          # REPOSITORY looks like ghcr.io/<owner>/<package path>
+          package="${REPOSITORY#ghcr.io/*/}"
+          tag="$REQUESTED_TAG"
+          if [[ -z "$tag" ]]; then
+            echo "Looking up the most recently pushed tag of $package"
+            tag=$(gh api --paginate "orgs/${{ github.repository_owner }}/packages/container/${package//\//%2F}/versions" \
+              --jq '.[] | select(.metadata.container.tags | length > 0) | "\(.updated_at) \(.metadata.container.tags[0])"' \
+              | sort -r | head -n 1 | cut -d' ' -f2)
           fi
-                
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
+          if [[ -z "$tag" ]]; then
+            echo "::error::Could not determine an image tag for $REPOSITORY"
+            exit 1
+          fi
+          echo "Scanning $REPOSITORY:$tag"
+          echo "ref=$REPOSITORY:$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Display Trivy scan logs
-        if: always()
-        run: cat trivy-results.sarif
+      - name: Run Trivy scan (SARIF)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: sarif
+          output: trivy-results.sarif
+          timeout: 15m0s
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Show findings summary
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: table
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: true
+          timeout: 15m0s
