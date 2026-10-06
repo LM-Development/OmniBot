@@ -95,7 +95,8 @@ To explore even more documentation, we advise taking a look at our [documentatio
     AzureSettings__BotName=BOT_NAME
     AzureSettings__AadAppId=BOT_ID
     AzureSettings__AadAppSecret=BOT_SECRET
-    AzureSettings__ServiceDnsName=RESERVED_DOMAIN ## e.g. contoso.ngrok.io
+    AzureSettings__ServiceDnsName=MEDIA_DOMAIN ## CNAME to your reserved ngrok TCP address, e.g. media.contoso.com
+    AzureSettings__ServiceSignalingDnsName=RESERVED_DOMAIN ## ngrok HTTP domain, see docs/debug.md
     AzureSettings__CertificateThumbprint=THUMBPRINT
     AzureSettings__InstancePublicPort=RESERVED_PORT ## TCP
     AzureSettings__CallSignalingPort=LOCALHOST_HTTP_PORT ## 9441

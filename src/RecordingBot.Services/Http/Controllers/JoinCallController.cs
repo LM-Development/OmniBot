@@ -44,7 +44,7 @@ namespace RecordingBot.Services.Http.Controllers
             {
                 var call = await _botService.JoinCallAsync(joinCallBody).ConfigureAwait(false);
                 var callPath = $"/{HttpRouteConstants.CALL_ROUTE.Replace("{callLegId}", call.Id)}";
-                var callUri = $"{_settings.ServiceCname}{callPath}";
+                var callUri = $"{_settings.ServiceSignalingDnsName}{callPath}";
 
                 _eventPublisher.Publish("JoinCall", $"Call.id = {call.Id}");
 
