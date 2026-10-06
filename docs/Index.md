@@ -19,6 +19,7 @@ This repository follows the [Diataxis framework](https://diataxis.fr/).
 - [Recording Bot Overview](./explanations/recording-bot-overview.md)
 - [Permissions](./explanations/recording-bot-permission.md)
 - [Policy](./explanations/recording-bot-policy.md)
+- [Which Calls the Bot Can Join](./explanations/recording-bot-call-types.md)
 
 ## References
 
