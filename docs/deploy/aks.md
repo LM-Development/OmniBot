@@ -7,12 +7,12 @@ The following documents the steps required to deploy the bot in Azure Kubernetes
 1. [Setup](#Setup)
     - [Create an AKS cluster](#create-an-aks-cluster)
     - [Create and setup ACR](#create-and-setup-acr)
-    - [Install cert-manager and nginx-ingress](#install-cert-manager-and-nginx-ingress)
+    - [Install cert-manager and the Traefik CRDs](#install-cert-manager-and-the-traefik-crds)
     - [Set up DNS](#set-up-dns)
     - [Create Bot Channels Registration](#create-bot-channels-registration)
 2. [Build and push Docker image](#build-and-push-docker-image)
 3. [Deploy bot to AKS](#deploy-bot-to-aks)
-4. [Concept: How bot works in Kubernetes](#concept:-how-bot-works-in-kubernetes)
+4. [Concept: How bot works in Kubernetes](#concept-how-bot-works-in-kubernetes)
 5. [Validate deployment](#validate-deployment)
 6. [Testing](#testing)
 7. [Upgrading](#upgrading)
@@ -66,15 +66,30 @@ To store the bot Docker image, you need an Azure Container Registry (ACR). For m
 
 Make sure you also integrate the ACR with AKS. For more detailed steps, see the AKS docs for [configuring ACR integration for existing AKS clusters](https://docs.microsoft.com/en-us/azure/aks/cluster-container-registry-integration#configure-acr-integration-for-existing-aks-clusters).
 
-### Install cert-manager and nginx-ingress
+### Install cert-manager and the Traefik CRDs
 
-In your cluster, you need to install `cert-manager` (which will manage TLS certificates for you) and `nginx-ingress`.
+In your cluster, you need `cert-manager`, which issues and renews the TLS certificate for your domain via Let's Encrypt.
 
-1. Modify [`cluster-issuer.yaml`](../../deploy/cluster-issuer.yaml) by adding a contact [email](../../deploy/cluster-issuer.yaml#L8).
-2. Run the [`cert-manager.bat`](../../deploy/cert-manager.bat) script.
-3. Run the [`ingress-nginx.bat`](../../deploy/ingress-nginx.bat) script.
+1. Run the [`install.bat`](../../deploy/cert-manager/install.bat) script:
 
->Note: After executing the last script `ingress-nginx.bat` and checking the status of the deployed kubernetes pods, you may see that the pod deployed into `ingress-nginx` namespace has either the `Error` or `CrashLoopBackOff` status. Don't worry, it is expected, because there's no default backend installed and the load balancer which will be installed in a later stage doesn't yet exist. Eventually, once you have deployed the bot, that `nginx` pod will work as expected.
+    ```powershell
+    cmd.exe /c '.\deploy\cert-manager\install.bat'
+    ```
+
+    You do **not** need to create a `ClusterIssuer` yourself. The bot's Helm chart deploys one ([`cluster-issuer.yaml`](../../deploy/teams-recording-bot/templates/cluster-issuer.yaml)) using the email you pass as `ingress.tls.email` during deployment.
+
+2. Install the Traefik CRDs. The ingress controller ([Traefik](https://doc.traefik.io/traefik/)) is deployed as a dependency of the bot's Helm chart (see [`Chart.yaml`](../../deploy/teams-recording-bot/Chart.yaml)), so there is no separate ingress install step. The chart also uses a Traefik custom resource, so the CRDs must exist before the first install:
+
+    ```powershell
+    helm repo add traefik https://traefik.github.io/charts
+    helm repo update
+    helm pull traefik/traefik --version 39.0.7 --untar --untardir $env:TEMP
+    kubectl apply -f "$env:TEMP\traefik\crds\" --server-side --force-conflicts
+    ```
+
+    Use the Traefik version from [`Chart.yaml`](../../deploy/teams-recording-bot/Chart.yaml).
+
+>Note: Older versions of this guide referenced `cluster-issuer.yaml`, `cert-manager.bat` and `ingress-nginx.bat` in the `deploy` folder. These files no longer exist: the issuer is part of the chart, `cert-manager.bat` became `deploy/cert-manager/install.bat`, and nginx was replaced by Traefik.
 
 ### Set up DNS
 
@@ -132,23 +147,33 @@ kubectl create secret generic bot-application-secrets `
 
 **Note**: Replace `BOT_ID`, `BOT_SECRET` and `BOT_NAME` with values from your bot registration (see [bot.md](../setup/bot.md)).
 
-Now you can deploy the bot into this namespace. From the root of this repository, run the following command to install the bot in your AKS cluster:
+Now you can deploy the bot into this namespace. From the root of this repository, run the following commands to install the bot in your AKS cluster:
 
 ```powershell
-helm install teams-recording-bot ./deploy/teams-recording-bot `
+helm dependency build ./deploy/teams-recording-bot
+
+helm upgrade teams-recording-bot ./deploy/teams-recording-bot `
+    --install `
     --namespace teams-recording-bot `
     --create-namespace `
     --set host="HOST" `
     --set public.ip=STATIC_IP_ADDRESS `
-    --set image.domain=YOUR_ACR_DOMAIN
+    --set ingress-traefik.service.spec.loadBalancerIP=STATIC_IP_ADDRESS `
+    --set internal.port=80 `
+    --set image.registry=YOUR_ACR_DOMAIN `
+    --set image.name=teams-recording-bot `
+    --set image.tag=IMAGE_TAG `
+    --set ingress.tls.email=YOUR_EMAIL
 ```
 
 **Note**:
 
 * `HOST` should be your domain (e.g. `subdomain.domain.com`).
-* `STATIC_IP_ADDRESS` should be the static IP address associated with your AKS cluster's load balancer.
-* `YOUR_ACR_DOMAIN` should be the container registry to which you pushed the Docker image (e.g. `youracrname.azurecr.io`).
-* By default the bot deploys to a node pool with the name `scale`. If you did not call your node pool `scale`, you will need to override `node.target` using `--set node.target=NAME_OF_NODEPOOL`.
+* `STATIC_IP_ADDRESS` should be the static IP address associated with your AKS cluster's load balancer. It is used both for the bot's media ports (`public.ip`) and for the Traefik ingress (`ingress-traefik.service.spec.loadBalancerIP`).
+* `internal.port=80` makes the bot serve plain HTTP on port `81`, which is the port the chart's services route to (the bot listens for HTTP on `internal.port + 1`).
+* `YOUR_ACR_DOMAIN` should be the container registry to which you pushed the Docker image (e.g. `youracrname.azurecr.io`), and `IMAGE_TAG` the tag you pushed.
+* `YOUR_EMAIL` is the contact email for Let's Encrypt. The deployment fails if it is not set.
+* The bot is scheduled on Windows nodes (`node.targetOS`, `node.targetSku` in [`values.yaml`](../../deploy/teams-recording-bot/values.yaml)); Traefik runs on Linux nodes.
 
 ## Concept: How Bot works in Kubernetes
 
@@ -158,76 +183,31 @@ This section details on how the bot works in Kubernetes, what is deployed and ho
 
 ### What is deployed
 
-Deployed          | What it is responsible for
------------------ | --------------------------
-Ingress           | This is used to route TCP traffic to the pods. Traffic is round-robin to the next available pod.
-Headless Service  | Provides the ability to direct traffic to a specific pod in the StatefulSet.
-ConfigMap         | TCP port mapping used to map public ports on the external load balancer to an a specific pod ClusterIP service.
-LoadBalancer      | External facing. Has ports opened for both HTTPS and TCP traffic.
-StatefulSet       | The bot container.
-ClusterIP Service | TCP media traffic. Sits in front of the StatefulSet and routes media to the pods.
+Deployed                                  | What it is responsible for
+----------------------------------------- | --------------------------
+Traefik (chart dependency)                | Ingress controller. Terminates TLS for `HOST` and routes HTTPS signaling traffic to the pods. Exposed through its own `LoadBalancer` service on the static IP (ports 80 and 443).
+ClusterIssuer                             | Tells cert-manager to request the certificate for `HOST` from Let's Encrypt (HTTP-01 challenge through Traefik).
+Ingress                                   | Routes `/{i}/...` to pod `i` and everything else round-robin to any ready pod.
+Headless Service `<release>-routing`      | Round-robin target for new incoming calls. Only contains ready pods.
+ClusterIP Service `<release>-{i}`         | One per pod (up to `scale.maxReplicaCount`). Targets exactly one pod, for signaling (port 80 → pod port 81) and media (`internal.media`).
+LoadBalancer Service `<release>-external` | External media ports on the static IP: `public.media + i` → `internal.media` of pod `i`.
+StatefulSet                               | The bot containers.
 
 ### How it ties together
 
 The following is a breakdown of each component and how they join together.
 
-#### External Load Balance
+#### Signaling (HTTPS)
 
-Using `.Values.public.media` as the starting point, helm iterates `.Values.scale.maxReplicaCount` number of times, and exposes `.Values.public.media` + current iteration to the internet. This is so each pod deployed in the StatefulSet has its own public TCP port for Teams to send media to.
+Traefik terminates TLS using the certificate cert-manager stores in the `ingress-tls-<release>` secret, and forwards plain HTTP to the bot.
 
-Port 443 is exposed for standard HTTPS traffic to route to each pod.
+Incoming traffic signalling a bot to join a meeting (`https://HOST/api/calling`) does not match a pod prefix and goes to the `<release>-routing` headless service, which round-robins it to an available pod.
 
-This external load balancer is used by Ingress-Nginx and is called `ingress-nginx-controller`. If you are installing Ingress-Nginx using Helm, it is important that it does not also deploy an external load balancer by using `--set controller.service.enabled=false` so that Ingress-Nginx uses the load balancer that's deployed and configured by the `teams-recording-bot` Helm chart.
+Once a bot answers the request and joins the meeting, it gives Teams a notification URL that contains its pod ordinal, e.g. `https://HOST/0/api/calling/notification`. The Ingress has one path rule per pod (`/0`, `/1`, ... up to `scale.maxReplicaCount - 1`), each pointing to the ClusterIP service `<release>-{i}`, so notifications for a call always reach the pod that is handling it.
 
-#### Ingress
+#### Media (TCP)
 
-Once ingress is deployed, it is responsible for routing HTTPS traffic to pods in the StatefulSet. Incoming traffic signalling a bot to join a meeting is round-robin to the next available pod in the StatefulSet using the `teams-recording-bot-routing` headless service.
-
-Once a bot answers the request and joins the meeting, the bot then gives Teams a special URL to send notifications to. This special URL is parsed in the ingress using NGINX server-snippets and sends traffic directly to the targeted pod, bypassing the round-robin.
-
-The following is an example of how this is done:
-
-```yaml
-nginx.ingress.kubernetes.io/server-snippet: |
-    location ~* ^/(?<instance>[0-9]*)/api/calling/notification {
-        proxy_pass https://{{ $fullName }}-$instance.{{ $fullName }}.{{ $namespace }}.svc.cluster.local:{{ .Values.internal.port }};
-    }
-```
-
-* Example request: `https://bot.com/0/api/calling/notification`
-* Using regex, we parse `instance` which correlates to the pod's [ordinal index](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#ordinal-index). In the example above, `instance` would equal `0`.
-   * If this regex is not satisfied, traffic is not intercepted meaning it is able to be round-robin to the next available pod.
-* Using `proxy_pass`, we're able to redirect the traffic to the specific pod using the internal address which is provided using the [headless service](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#stable-network-id).
-    * `{{ $fullName }}` comes from the name of the Helm chart. In our case that would be `teams-recording-bot` and is rendered when deployed using Helm.
-    * `{{ .Values.internal.port }}` unless specified, defaults to `9441`.
-    * In our example, the `proxy_pass` URL would be: `https://teams-recording-bot-0.teams-recording-bot.teams-recording-bot.svc.cluster.local:9441`.
-
-#### Headless Services
-
-There are two different headless services deployed. These headless services are more or less identical but are used for different scenarios.
-
-- `teams-recording-bot-routing` - responsible for routing the initial call to an available pod, instructing the bot to join a call.
-- `teams-recording-bot` - responsible for routing updates to specific pod in the StatefulSet based on the incoming request.
-
-**Note**: we use two headless services for routing HTTPS requests to pods to help with down scaling the bots.
-
-#### ClusterIP Service
-
-One ClusterIP Service is deploy for each pod deployed using `.Values.scale.maxReplicaCount`. Each service points to a specific pod in the StatefulSet. This service is responsible for routing TCP traffic to the pod.
-
-Each service exposes and maps `.Values.internal.media` to the pod in the StatefulSet.
-
-#### ConfigMap
-
-A ConfigMap is used to bind the external TCP port exposed by the external load balancer to a specific pod in the StatefulSet. To do this, when deploying Ingress-Nginx it is important to pass an argument to the container telling the bot where to find the ConfigMap. If you're deploying Ingress-Nginx using Helm, you can do this with `--set controller.extraArgs."tcp-services-configmap"=teams-recording-bot/tcp-services`.
-
-When deploying, Helm iterates `.Values.scale.maxReplicaCount` number of times, and creates an entry for `.Values.public.media` + current iteration, mapping it to a specific ClusterIP Service and `.Values.internal.media`.
-
-The end result is something like this:
-
-```yaml
-28550: teams-recording-bot/teams-recording-bot-0:8445
-```
+Each bot advertises its own public media port, `public.media` + its pod [ordinal index](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#ordinal-index) (e.g. `28550` for pod `0`, `28551` for pod `1`). The `LoadBalancer` service opens these ports on the static IP and maps each of them to `internal.media` of the matching pod.
 
 #### StatefulSet
 
@@ -248,8 +228,7 @@ The main thing that happens when increasing `.scale.replicaCount` is:
 If you want to deploy more bots than what `scale.maxReplicaCount` allows, increasing `scale.maxReplicaCount` will do the following:
 
 * New ports are opened up on the external load balancer.
-* Additional ClusterIP services are added for each additional pods.
-* The ConfigMap `tcp-services` is updated with mapping between the newly added ports and ClusterIP services.
+* Additional ClusterIP services and Ingress path rules are added for each additional pod.
 
 The reason for separating scaling pods from scaling the services which support routing media is so that we can ensure the services will remain active while scaling down. This also helps if you want to implement auto scaling through something like [Horizontal Pod Autoscaler](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/).
 
@@ -259,27 +238,29 @@ Scaling down is a bit tricky. There's a couple issues we face when scaling down.
 
 * If a pod is in a meeting, we need to make sure the pod is not forcefully terminated before the meeting finishes on its own.
 * If a pod is terminating, we don't want new calls being assigned to that pod.
-* When a pod is marked for termination, that pod's endpoints are removed from all services. This means even if we are able to keep the pod alive, we would not be able to route update notifications to the pod using the headless service and NGINX server-snippet.
+* When a pod is marked for termination, that pod's endpoints are removed from all services. This means even if we are able to keep the pod alive, we would not be able to route update notifications to the pod.
 
 To get around pods terminating before the call has ended is through a combination of `terminationGracePeriodSeconds` and `preStop` hooks. When used together, we can keep the pods alive for as long as we want without risk of encountering a `SIGKILL` signal. 
+
+> [!NOTE]
+> The `preStop` hook is currently commented out in [`deployment.yaml`](../../deploy/teams-recording-bot/templates/deployment.yaml). Without it, `terminationGracePeriodSeconds` alone does not wait for calls to end.
 
 In our `preStop` hook, we run a little script called [halt_termination.ps1](../../scripts/halt_termination.ps1). This script calls `http://localhost:9442/calls` (an API endpoint built into the bot), and if the response is empty, there are no ongoing calls and the script exits allowing the pod to finish terminating. However, if the response is not empty, that indicates the pod is currently in an ongoing meeting so the script then sleeps for 60 seconds before trying again.
 
 **Note**: if you set `terminationGracePeriodSeconds` too low you risk running out of time which results in the pod being forcefully removed.
 
-So that gets around the pod forcefully terminating but that doesn't fix the issue of the pod's endpoints getting removed from all services. For that we set `publishNotReadyAddresses` to `true` in one of our headless services. This prevents the terminating pod's endpoints from getting removed from that headless service. This in turn allows the NGINX server-snippet to continue routing update notification HTTPS traffic to the pod even while it is terminating!
+So that gets around the pod forcefully terminating but that doesn't fix the issue of the pod's endpoints getting removed from all services. For that we set `publishNotReadyAddresses` to `true` on the per-pod `<release>-{i}` services. This prevents the terminating pod's endpoints from getting removed from those services, which allows the Ingress to continue routing update notifications to the pod even while it is terminating!
 
-This is also why we have two headless services to route HTTPS traffic to the pods. One headless service is strictly to round-robin new requests for a bot to join a meeting while the other is used to route update notifications directly to the desired pod. When the pod is marked from termination, that pod's endpoint is removed from the headless service that round-robins requests to an available pod preventing new calls going to that terminating pod, while leaving that pod's endpoints reachable by the headless service with `publishNotReadyAddresses` set to `true`.
+This is also why there are two kinds of services routing HTTPS traffic to the pods. The `<release>-routing` headless service round-robins new requests for a bot to join a meeting, while the per-pod services route update notifications directly to the desired pod. When a pod is marked for termination, its endpoint is removed from `<release>-routing`, so no new calls go to it, while it stays reachable through its own service with `publishNotReadyAddresses` set to `true`.
 
 To scale down, decrease `scale.replicaCount` while leaving `scale.maxReplicaCount` as is. If you want to decrease `scale.maxReplicaCount`, make sure you do so after decreasing `scale.replicaCount` and waiting for there to be no pods in a `terminating` state.
 
 ## Validate deployment
 
-You can validate that the `cert-manager` and `ingress-nginx` pods are running properly by checking the pods' statuses:
+You can validate that the `cert-manager` pods are running properly by checking the pods' statuses:
 
 ```powershell
 kubectl get pods -n cert-manager
-kubectl get pods -n ingress-nginx
 ```
 
 which should show the pods running:
@@ -291,23 +272,13 @@ cert-manager-cainjector-tuvwxyz        1/1     Running   0          10m
 cert-manager-webhook-1234567           1/1     Running   0          10m
 ```
 
-```
-NAME                                                 READY   STATUS    RESTARTS   AGE
-nginx-ingress-ingress-nginx-controller-abcdefg       1/1     Running   0          10m
-```
-
-Also validate the ingress controller service:
+Traefik is deployed into the bot's namespace. Validate the services there:
 
 ```powershell
-kubectl get svc -n ingress-nginx
+kubectl get svc -n teams-recording-bot
 ```
 
-which should show the configured static IP and open ports:
-
-```
-NAME                                     TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                                                                      AGE
-nginx-ingress-ingress-nginx-controller   LoadBalancer   10.0.101.71   12.123.12.123   80:31871/TCP,443:31066/TCP,28550:30992/TCP,28551:32763/TCP,28552:31163/TCP   10m
-```
+The Traefik `LoadBalancer` service should show your static IP with ports `80` and `443`, and the `teams-recording-bot-external` service should show your static IP with the media ports (`28550`, ...).
 
 Next, validate that the certificate was properly issued:
 
@@ -318,8 +289,8 @@ kubectl get cert -n teams-recording-bot
 which should show the issued certificate as "ready":
 
 ```
-NAME          READY   SECRET        AGE
-ingress-tls   True    ingress-tls   10m
+NAME                              READY   SECRET                            AGE
+ingress-tls-teams-recording-bot   True    ingress-tls-teams-recording-bot   10m
 ```
 
 Finally, you can check the `teams-recording-bot` pods:
@@ -344,7 +315,7 @@ teams-recording-bot-2   1/1     Running   1          10m
 After all kubernetes services and pods are up and running, it is a good idea to test that your bot can actually join the Microsoft Teams meeting and properly record audio streams.
 To do that, you'd need to follow these steps:
 
-1. Create a Teams Meeting Recording Policy for your Bot and assign it to the test user as  instructed in [Policy.md](../setup/policy.md).
+1. Create a Teams Meeting Recording Policy for your Bot and assign it to the test user as  instructed in [policy.md](../guides/policy.md).
 
 2. Join the meeting with a test user (that has the Teams Meeting Recording Policy assigned to) and verify that the recording has automaticaly started (you should see the user consent disclaimer that the recording has started).
 
@@ -439,16 +410,18 @@ kubectl cp -n teams-recording-bot teams-recording-bot-1:/Users/ContainerAdminist
 
 Now you can inspect the archived zip file on your local drive and check that it contains the audio stream was recorded during your test Teams Meeting.
 
+
 ## Upgrading
 
 Upgrades are handled through helm. To upgrade the bot in your cluster, pull the latest changes and run the following command from the root of this repository:
 
 ```powershell
+helm dependency build ./deploy/teams-recording-bot
+
 helm upgrade teams-recording-bot ./deploy/teams-recording-bot `
     --namespace teams-recording-bot `
-    --set host="HOST" `
-    --set public.ip=STATIC_IP_ADDRESS `
-    --set image.domain=YOUR_ACR_DOMAIN
+    --reuse-values `
+    --set image.tag=NEW_IMAGE_TAG
 ```
 
 ## Scaling
@@ -458,8 +431,7 @@ You can manually scale the bot by increasing the `scale.replicaCount`. Run the f
 ```powershell
 helm upgrade teams-recording-bot ./deploy/teams-recording-bot `
     --namespace teams-recording-bot `
-    --set host="HOST" `
-    --set public.ip=STATIC_IP_ADDRESS `
+    --reuse-values `
     --set scale.replicaCount=2
 ```
 
@@ -494,20 +466,15 @@ and then pushing the image:
 docker push youracrname.azurecr.io/teams-recording-bot:[new-version-number]
 ```
 
-3. When updating the docker image, you must also update the application version specified in the [Chart.yaml](../deploy/teams-recording-bot/Chart.yaml). This version number should be incremented each time you make changes to the application.
-Then, you simply re-run the Helm Chart upgrade command in order to update your AKS cluster pods:
+3. When updating the docker image, you should also update the application version specified in the [Chart.yaml](../../deploy/teams-recording-bot/Chart.yaml). This version number should be incremented each time you make changes to the application.
+Then, re-run the Helm upgrade with the new image tag in order to update your AKS cluster pods:
 
 ```powershell
 helm upgrade teams-recording-bot ./deploy/teams-recording-bot `
     --namespace teams-recording-bot `
-    --set host="HOST" `
-    --set public.ip=STATIC_IP_ADDRESS `
-    --set image.domain=YOUR_ACR_DOMAIN
+    --reuse-values `
+    --set image.tag=[new-version-number]
 ```
-
->where:
-- YOUR_ACR_DOMAIN is your full path to your ACR registry (e.g. `youracrname.azurecr.io`)
-- STATIC_IP_ADDRESS is your public static IP address attached to the AKS Load Balancer
 
 ## Uninstalling
 
@@ -516,5 +483,5 @@ helm uninstall teams-recording-bot --namespace teams-recording-bot
 
 kubectl delete ns cert-manager
 
-kubectl delete ns ingress-nginx
+kubectl delete ns teams-recording-bot
 ```

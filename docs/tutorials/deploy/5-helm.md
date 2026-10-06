@@ -95,6 +95,22 @@ The output should look similar to:
 secret/bot-application-secrets created
 ```
 
+## Install Traefik CRDs
+
+The ingress controller ([Traefik](https://doc.traefik.io/traefik/)) is deployed together with the
+recording bot as a dependency of its Helm chart, so we do not install it separately. The chart
+does use a Traefik custom resource though, so the Traefik CRDs have to be installed first:
+
+```powershell
+helm repo add traefik https://traefik.github.io/charts
+helm repo update
+helm pull traefik/traefik --version 39.0.7 --untar --untardir $env:TEMP
+kubectl apply -f "$env:TEMP\traefik\crds\" --server-side --force-conflicts
+```
+
+> [!NOTE]  
+> Use the Traefik version from [`Chart.yaml`](../../../deploy/teams-recording-bot/Chart.yaml).
+
 ## Deploy recording bot sample
 
 Now we can deploy the recording bot sample.
@@ -109,12 +125,11 @@ The output of that should look similar to:
 
 ```text
 Hang tight while we grab the latest from your chart repositories...
-...Successfully got an update from the "ingress-nginx" chart repository
 ...Successfully got an update from the "jetstack" chart repository
-...Successfully got an update from the "stable" chart repository
+...Successfully got an update from the "traefik" chart repository
 Update Complete. ⎈Happy Helming!⎈
 Saving 1 charts
-Downloading ingress-nginx from repo https://kubernetes.github.io/ingress-nginx
+Downloading traefik from repo https://traefik.github.io/charts
 Deleting outdated charts
 ```
 
@@ -128,12 +143,11 @@ The output should look similar to:
 
 ```text
 Hang tight while we grab the latest from your chart repositories...
-...Successfully got an update from the "ingress-nginx" chart repository
 ...Successfully got an update from the "jetstack" chart repository
-...Successfully got an update from the "stable" chart repository
+...Successfully got an update from the "traefik" chart repository
 Update Complete. ⎈Happy Helming!⎈
 Saving 1 charts
-Downloading ingress-nginx from repo https://kubernetes.github.io/ingress-nginx
+Downloading traefik from repo https://traefik.github.io/charts
 Deleting outdated charts
 ```
 
@@ -141,16 +155,23 @@ Now we can deploy the chart of the recording bot sample to our aks cluster. Do n
 the example values with the values you have written down during the previous steps.
 
 ```powershell
-helm upgrade recordingbottutorial .\deploy\teams-recording-bot\ 
-    --install 
-    --namespace recordingbottutorial 
-    --set image.registry="recordingbotregistry.azurecr.io/recordingbottutorial" 
-    --set image.name="application" 
-    --set image.tag="latest" 
-    --set public.ip="255.255.255.255" 
-    --set host="recordingbottutorial.westeurope.cloudapp.azure.com" 
-    --set ingress.tls.email="tls-security@lm-ag.de"  
+helm upgrade recordingbottutorial .\deploy\teams-recording-bot\ `
+    --install `
+    --namespace recordingbottutorial `
+    --set image.registry="recordingbotregistry.azurecr.io/recordingbottutorial" `
+    --set image.name="application" `
+    --set image.tag="latest" `
+    --set public.ip="255.255.255.255" `
+    --set ingress-traefik.service.spec.loadBalancerIP="255.255.255.255" `
+    --set internal.port=80 `
+    --set host="recordingbottutorial.westeurope.cloudapp.azure.com" `
+    --set ingress.tls.email="tls-security@lm-ag.de"
 ```
+
+> [!NOTE]  
+> `public.ip` and `ingress-traefik.service.spec.loadBalancerIP` both have to be set to the public IP
+> of the cluster: the first one exposes the media ports, the second one the HTTPS ingress.
+> `internal.port=80` makes the bot serve plain HTTP on port 81, which is where the ingress routes to.
 
 The output should look similar to:
 
