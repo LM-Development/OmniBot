@@ -86,7 +86,7 @@ To explore even more documentation, we advise taking a look at our [documentatio
 ## Developer Setup
 
 1. [Setting up Ngrok](docs/setup/ngrok.md)
-2. [Generating SSL Certificate and setting up URL ACL and Certificate Bindings](docs/setup/certificate.md)
+2. [Setting up the TLS Certificate, URL ACL and Certificate Bindings](docs/setup/certificate.md)
 3. [Configuring Bot Channel Registration and Granting Permission](docs/setup/bot.md)
 4. Optional - [Creating and Assigning Compliance Policy](docs/setup/policy.md)
 5. Using the configurations from the steps above, copy [.env-template](src/RecordingBot.Console/.env-template) and create a new file called `.env` in the same location. Your `.env` should look something like this:
