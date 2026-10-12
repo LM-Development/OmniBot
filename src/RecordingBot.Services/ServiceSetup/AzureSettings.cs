@@ -14,6 +14,11 @@ namespace RecordingBot.Services.ServiceSetup
         public string ServiceDnsName { get; set; }
         public string ServicePath {get;set;} = "/";
         public string ServiceCname { get; set; }
+        /// <summary>
+        /// Host name Teams sends call notifications to. Defaults to <see cref="ServiceCname"/>.
+        /// Set it when signaling and media are exposed on different hosts, e.g. ngrok HTTP and TCP tunnels.
+        /// </summary>
+        public string ServiceSignalingDnsName { get; set; }
         public string CertificateThumbprint { get; set; }
         public Uri CallControlBaseUrl { get; set; }
         public Uri PlaceCallEndpointUrl { get; set; }
@@ -45,6 +50,11 @@ namespace RecordingBot.Services.ServiceSetup
                 ServiceCname = ServiceDnsName;
             }
 
+            if (string.IsNullOrWhiteSpace(ServiceSignalingDnsName))
+            {
+                ServiceSignalingDnsName = ServiceCname;
+            }
+
             Certificate = GetCertificateFromStore();
 
             int podNumber = 0;
@@ -55,7 +65,7 @@ namespace RecordingBot.Services.ServiceSetup
             }
 
             // Create structured config objects for service.
-            CallControlBaseUrl = new Uri($"https://{ServiceCname}{(CallSignalingPublicPort != 443 ? ":" + CallSignalingPublicPort : "")}{ServicePath}{podNumber}/{HttpRouteConstants.CALL_SIGNALING_ROUTE_PREFIX}/{HttpRouteConstants.ON_NOTIFICATION_REQUEST_ROUTE}");
+            CallControlBaseUrl = new Uri($"https://{ServiceSignalingDnsName}{(CallSignalingPublicPort != 443 ? ":" + CallSignalingPublicPort : "")}{ServicePath}{podNumber}/{HttpRouteConstants.CALL_SIGNALING_ROUTE_PREFIX}/{HttpRouteConstants.ON_NOTIFICATION_REQUEST_ROUTE}");
             PodPathBase = $"{ServicePath}{podNumber}";
 
             MediaPlatformSettings = new MediaPlatformSettings
